@@ -3,6 +3,21 @@ package internal
 // ============================
 // Register definitions
 // ============================
+
+type BW uint64
+
+const ()
+
+const (
+	SF_6_OPTIMIZE  byte = 0x05
+	SF_6_THRESHOLD byte = 0x0c
+)
+
+const (
+	SF_DEF_OPTIMIZE  byte = 0xc3
+	SF_DEF_THRESHOLD byte = 0x0a
+)
+
 const (
 	REG_FIFO                 byte = 0x00
 	REG_OP_MODE              byte = 0x01

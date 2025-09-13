@@ -14,9 +14,19 @@ type BitUtils interface {
 	SetWriteMask(reg byte) byte
 	SetReadMask(reg byte) byte
 	ChangeMode(mode LoraMode) byte
+	SetTxPower(power byte) byte
+	SetFreq(freq byte) []byte
+	SetSF(sf byte) byte
+	SetBW(bw byte) byte
+	SetCrc(enable bool) byte
 }
 
 type LoraUtils struct{}
+
+func (lu *LoraUtils) SetCrc(enable bool) byte {
+	//TODO implement me
+	panic("implement me")
+}
 
 func (lu *LoraUtils) SetWriteMask(reg byte) byte {
 
@@ -26,6 +36,18 @@ func (lu *LoraUtils) SetReadMask(reg byte) byte {
 
 }
 
-func (lu *LoraUtils) ChangeMode(mode LoraMode) byte {
+func (lu *LoraUtils) ChangeMode(mode LoraMode) byte {}
+
+func (lu *LoraUtils) SetTxPower(power byte) byte {}
+
+func (lu *LoraUtils) SetFreq(freq byte) []byte {
+
+}
+
+func (lu *LoraUtils) SetSF(sf byte) byte {
+
+}
+
+func (lu *LoraUtils) SetBW(bw byte) byte {
 
 }
