@@ -1,4 +1,4 @@
-package RstPin
+package periphIO
 
 import (
 	"errors"

@@ -1,4 +1,4 @@
-package GoLoraSpi
+package periphIO
 
 import (
 	"errors"
