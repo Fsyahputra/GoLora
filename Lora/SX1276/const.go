@@ -12,3 +12,17 @@ const (
 	BW_7 BW = 125e3
 	BW_8 BW = 250e3
 )
+
+type Header bool
+
+const (
+	Explicit Header = true
+	Implicit Header = false
+)
+
+type Event int
+
+const (
+	OnRxDone = iota
+	OnTxDone
+)

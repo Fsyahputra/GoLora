@@ -7,7 +7,6 @@ import (
 	"sync"
 
 	"periph.io/x/conn/v3/gpio"
-	"periph.io/x/conn/v3/gpio/gpioreg"
 	"periph.io/x/conn/v3/physic"
 	"periph.io/x/conn/v3/spi"
 	"periph.io/x/conn/v3/spi/spireg"
@@ -17,101 +16,107 @@ type SpiConf struct {
 	Freq   physic.Frequency
 	Mode   spi.Mode
 	Bit    int
-	CSPin  gpio.PinIO
 	CSName string
 	CSSoft bool
+	Reg    string
 }
 
-func (sc *SpiConf) Init() error {
-	p := gpioreg.ByName(sc.CSName)
-	if p == nil {
-		return errors.New("CS not registered")
-	}
-	sc.CSPin = p
-	return nil
-}
-
-type PeriphIOSPI struct {
+type SPI struct {
 	Reg       string
 	SpiDev    spi.Conn
 	SpiCloser spi.PortCloser
-	SpiConf   *SpiConf
-	mu        *sync.Mutex
+	*SpiConf
+	CSPin gpio.PinIO
+	mu    sync.Mutex
 }
 
-func NewSpiConf(frequency physic.Frequency, mode spi.Mode, bit int) *SpiConf {
-	defConf := &SpiConf{
-		Freq: 100 * physic.KiloHertz,
-		Mode: spi.Mode0,
-		Bit:  8,
+func NewDefaultConf() *SpiConf {
+	return &SpiConf{
+		Freq:   100 * physic.KiloHertz,
+		Mode:   spi.Mode0,
+		Bit:    8,
+		Reg:    "/dev/spidev0.0",
+		CSName: "",
+		CSSoft: false,
 	}
-	if frequency != 0 {
-		defConf.Freq = frequency
-	}
-	if mode != 0 {
-		defConf.Mode = mode
-	}
-	if bit != 0 {
-		defConf.Bit = bit
-	}
-	return defConf
 }
 
-func NewPeriphIOSPI(reg string, spiConf *SpiConf) (*PeriphIOSPI, error) {
+func NewSpiConf(conf *SpiConf) (*SpiConf, error) {
+	defConf := NewDefaultConf()
+	if conf.Freq != 0 {
+		defConf.Freq = conf.Freq
+	}
+	if conf.Mode != 0 {
+		defConf.Mode = conf.Mode
+	}
+	if conf.Bit != 0 {
+		defConf.Bit = conf.Bit
+	}
+	if conf.CSName == "" && conf.CSSoft == true {
+		defConf.CSName = conf.CSName
+		defConf.CSSoft = conf.CSSoft
+		return nil, errors.New("CSName or CSSoft is required")
+	}
+	if conf.Reg != "" {
+		defConf.Reg = conf.Reg
+	}
 	re := regexp.MustCompile(`^/dev/spidev[0-9]+\.[0-9]+$`)
 
-	if !re.MatchString(reg) {
+	if !re.MatchString(defConf.Reg) {
 		return nil, errors.New("invalid Register")
 	}
+	return defConf, nil
+}
+
+func NewSPI(spiConf *SpiConf) (*SPI, error) {
 
 	if spiConf == nil {
 		return nil, errors.New("spi conf is nil")
 	}
-	return &PeriphIOSPI{
-		Reg:       reg,
+	return &SPI{
 		SpiDev:    nil,
 		SpiCloser: nil,
 		SpiConf:   spiConf,
-		mu:        &sync.Mutex{},
+		CSPin:     nil,
+		mu:        sync.Mutex{},
 	}, nil
 }
 
-func (pi *PeriphIOSPI) checkSpiDev() error {
+func (pi *SPI) checkSpiDev() error {
 	if pi.SpiDev == nil {
 		return errors.New("no spi device connected")
 	}
 	return nil
 }
 
-func (pi *PeriphIOSPI) checkSpiCloser() error {
+func (pi *SPI) checkSpiCloser() error {
 	if pi.SpiCloser == nil {
 		return errors.New("no spi closer connected")
 	}
 	return nil
 }
 
-func (pi *PeriphIOSPI) Init() error {
-	if err := pi.SpiConf.Init(); err != nil {
-		return err
-	}
-
+func (pi *SPI) Init() error {
 	p, err := spireg.Open(pi.Reg)
 	if err != nil {
 		return err
 	}
-	conn, err := p.Connect(pi.SpiConf.Freq, pi.SpiConf.Mode, pi.SpiConf.Bit)
+	conn, err := p.Connect(pi.Freq, pi.Mode, pi.Bit)
+	if err != nil {
+		return err
+	}
 	pi.SpiCloser = p
 	pi.SpiDev = conn
 	return nil
 }
 
-func (pi *PeriphIOSPI) closeConn() {
+func (pi *SPI) closeConn() {
 	if pi.SpiCloser != nil {
 		pi.SpiCloser.Close()
 	}
 }
 
-func (pi *PeriphIOSPI) checkSpiDevAndCloser() {
+func (pi *SPI) checkSpiDevAndCloser() {
 	err := pi.checkSpiDev()
 	if err != nil {
 		pi.closeConn()
@@ -124,9 +129,9 @@ func (pi *PeriphIOSPI) checkSpiDevAndCloser() {
 	}
 }
 
-func (pi *PeriphIOSPI) softTx(reg, value byte) (byte, error) {
-	pi.SpiConf.CSPin.Out(gpio.Low)
-	defer pi.SpiConf.CSPin.Out(gpio.High)
+func (pi *SPI) softTx(reg, value byte) (byte, error) {
+	pi.CSPin.Out(gpio.Low)
+	defer pi.CSPin.Out(gpio.High)
 	tx := []byte{reg, value}
 	rx := make([]byte, len(tx))
 	if err := pi.SpiDev.Tx(tx, rx); err != nil {
@@ -135,7 +140,7 @@ func (pi *PeriphIOSPI) softTx(reg, value byte) (byte, error) {
 	return rx[1], nil
 }
 
-func (pi *PeriphIOSPI) tx(reg, value byte) (byte, error) {
+func (pi *SPI) tx(reg, value byte) (byte, error) {
 	tx := []byte{reg, value}
 	rx := make([]byte, len(tx))
 	if err := pi.SpiDev.Tx(tx, rx); err != nil {
@@ -144,7 +149,7 @@ func (pi *PeriphIOSPI) tx(reg, value byte) (byte, error) {
 	return rx[1], nil
 }
 
-func (pi *PeriphIOSPI) softCSTx(reg, value byte) error {
+func (pi *SPI) softCSTx(reg, value byte) error {
 	_, err := pi.softTx(reg, value)
 	if err != nil {
 		return err
@@ -152,7 +157,7 @@ func (pi *PeriphIOSPI) softCSTx(reg, value byte) error {
 	return nil
 }
 
-func (pi *PeriphIOSPI) softCSRx(reg byte) (byte, error) {
+func (pi *SPI) softCSRx(reg byte) (byte, error) {
 	rx, err := pi.softTx(reg, 0)
 	if err != nil {
 		return 0, err
@@ -160,14 +165,14 @@ func (pi *PeriphIOSPI) softCSRx(reg byte) (byte, error) {
 	return rx, nil
 }
 
-func (pi *PeriphIOSPI) hardCSTx(reg, value byte) error {
+func (pi *SPI) hardCSTx(reg, value byte) error {
 	if _, err := pi.tx(reg, value); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (pi *PeriphIOSPI) hardCSRx(reg byte) (byte, error) {
+func (pi *SPI) hardCSRx(reg byte) (byte, error) {
 	rx, err := pi.tx(reg, 0)
 	if err != nil {
 		return 0, err
@@ -175,12 +180,12 @@ func (pi *PeriphIOSPI) hardCSRx(reg byte) (byte, error) {
 	return rx, nil
 }
 
-func (pi *PeriphIOSPI) SendToMod(reg, value byte) error {
+func (pi *SPI) SendToMod(reg, value byte) error {
 	pi.checkSpiDevAndCloser()
 	pi.mu.Lock()
 	defer pi.mu.Unlock()
 	var err error
-	if pi.SpiConf.CSSoft {
+	if pi.CSSoft {
 		err = pi.softCSTx(reg, value)
 	} else {
 		err = pi.hardCSTx(reg, value)
@@ -188,13 +193,13 @@ func (pi *PeriphIOSPI) SendToMod(reg, value byte) error {
 	return err
 }
 
-func (pi *PeriphIOSPI) ReadFromMod(reg byte) (byte, error) {
+func (pi *SPI) ReadFromMod(reg byte) (byte, error) {
 	pi.checkSpiDevAndCloser()
 	pi.mu.Lock()
 	defer pi.mu.Unlock()
 	var err error
 	var rx byte
-	if pi.SpiConf.CSSoft {
+	if pi.CSSoft {
 		rx, err = pi.softCSRx(reg)
 	} else {
 		rx, err = pi.hardCSRx(reg)

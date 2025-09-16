@@ -9,3 +9,11 @@ type RSTPin interface {
 	Low() error
 	High() error
 }
+
+type CbPin interface {
+	ReadVal() (bool, error)
+}
+
+type HwDriver interface {
+	Init() error
+}

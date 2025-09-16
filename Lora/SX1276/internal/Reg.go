@@ -6,8 +6,6 @@ package internal
 
 type BW uint64
 
-const ()
-
 const (
 	SF_6_OPTIMIZE  byte = 0x05
 	SF_6_THRESHOLD byte = 0x0c
