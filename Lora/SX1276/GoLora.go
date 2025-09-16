@@ -23,10 +23,8 @@ type LoraConf struct {
 	EnableCrc      bool
 }
 type GoLora struct {
-	driver.ModComm
-	driver.RSTPin
-	driver.CbPin
-	internal.LoraUtils
+	*driver.Driver
+	*internal.LoraUtils
 	Conf      LoraConf
 	mu        sync.Mutex
 	cb        func()
@@ -38,17 +36,22 @@ type RegVal struct {
 	Val byte
 }
 
-func NewGoLoraSX1276(modComm driver.ModComm, rstPin driver.RSTPin, conf LoraConf) *GoLora {
+func NewGoLoraSX1276(drv *driver.Driver, conf LoraConf) *GoLora {
 	gl := &GoLora{
-		ModComm: modComm,
-		RSTPin:  rstPin,
-		Conf:    conf,
+		Driver:    drv,
+		LoraUtils: &internal.LoraUtils{},
+		Conf:      conf,
+		mu:        sync.Mutex{},
+		cb:        nil,
+		cbStopper: nil,
 	}
+
 	return gl
 }
 
 func (gl *GoLora) readReg(reg byte) (byte, error) {
 	readReg := gl.SetReadMask(reg)
+
 	rx, err := gl.ModComm.ReadFromMod(readReg)
 	if err != nil {
 		return 0, err

@@ -14,6 +14,12 @@ type CbPin interface {
 	ReadVal() (bool, error)
 }
 
+type Driver struct {
+	RSTPin
+	CbPin
+	ModComm
+}
+
 type HwDriver interface {
-	Init() error
+	Init() (*Driver, error)
 }

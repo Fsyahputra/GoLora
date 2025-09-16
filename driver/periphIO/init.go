@@ -1,6 +1,7 @@
 package periphIO
 
 import (
+	"github.com/Fsyahputra/GoLora/driver"
 	"periph.io/x/host/v3"
 )
 
@@ -34,15 +35,22 @@ func NewDriver(CbPinName, RstPinName string, conf *SpiConf) (*PeriphDriver, erro
 	}, nil
 }
 
-func (d *PeriphDriver) Init() error {
+func (d *PeriphDriver) Init() (*driver.Driver, error) {
 	if _, err := host.Init(); err != nil {
-		return err
+		return nil, err
 	}
 	if err := d.CbPin.Init(); err != nil {
-		return err
+		return nil, err
 	}
 	if err := d.SPI.Init(); err != nil {
-		return err
+		return nil, err
 	}
-	return nil
+
+	newDrv := &driver.Driver{
+		RSTPin:  d.RSTPin,
+		CbPin:   d.CbPin,
+		ModComm: d.SPI,
+	}
+
+	return newDrv, nil
 }
