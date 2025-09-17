@@ -3,6 +3,7 @@ package SX1276
 import (
 	"errors"
 	"fmt"
+	"log"
 	"sync"
 	"time"
 
@@ -14,9 +15,9 @@ import (
 type LoraConf struct {
 	TxPower        uint8
 	SF             uint8
-	BW             uint8
+	BW             uint64
 	CodingRate     uint8
-	PreambleLength uint8
+	PreambleLength uint16
 	SyncWord       uint8
 	Frequency      physic.Frequency
 	Header         Header
@@ -36,6 +37,20 @@ type RegVal struct {
 	Val byte
 }
 
+func (gl *GoLora) configure() error {
+	var err error
+	err = gl.SetTXPower(gl.Conf.TxPower)
+	err = gl.SetSF(gl.Conf.SF)
+	err = gl.SetBW(gl.Conf.BW)
+	err = gl.SetCodingRate(gl.Conf.CodingRate)
+	err = gl.SetPreamble(gl.Conf.PreambleLength)
+	err = gl.SetSyncWord(gl.Conf.SyncWord)
+	err = gl.SetFrequency(gl.Conf.Frequency)
+	err = gl.SetHeader(gl.Conf.Header)
+	err = gl.SetCrc(gl.Conf.EnableCrc)
+	return err
+}
+
 func NewGoLoraSX1276(drv *driver.Driver, conf LoraConf) *GoLora {
 	gl := &GoLora{
 		Driver:    drv,
@@ -47,6 +62,42 @@ func NewGoLoraSX1276(drv *driver.Driver, conf LoraConf) *GoLora {
 	}
 
 	return gl
+}
+
+func (gl *GoLora) Begin() error {
+	if err := gl.Reset(); err != nil {
+		return err
+	}
+	gl.mu.Lock()
+	defer gl.mu.Unlock()
+	modVer, err := gl.readReg(internal.REG_VERSION)
+	if err != nil {
+		return err
+	}
+
+	if modVer != 0x12 {
+		log.Fatal("Module is Not Sx1276 or check your Module Connection ")
+	}
+
+	if err := gl.ChangeMode(internal.Sleep); err != nil {
+		return err
+	}
+	currentLna, err := gl.readReg(internal.REG_LNA)
+	if err != nil {
+		return err
+	}
+	registers := []byte{internal.REG_FIFO_RX_BASE_ADDR, internal.REG_FIFO_TX_BASE_ADDR, internal.REG_LNA, internal.REG_MODEM_CONFIG_3}
+	values := []byte{0, 0, currentLna | 0x03, 0x04}
+	if err := gl.writeRegMany(registers, values); err != nil {
+		return err
+	}
+	if err := gl.configure(); err != nil {
+		return err
+	}
+	if err = gl.ChangeMode(internal.Idle); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (gl *GoLora) readReg(reg byte) (byte, error) {
@@ -68,21 +119,29 @@ func (gl *GoLora) writeReg(reg byte, value uint8) error {
 	return nil
 }
 
-func (gl *GoLora) Reset() {
-	gl.RSTPin.Low()
+func (gl *GoLora) Reset() error {
+	err := gl.RSTPin.Low()
+	if err != nil {
+		return err
+	}
 	time.Sleep(300 * time.Millisecond)
-	gl.RSTPin.High()
+	err = gl.RSTPin.High()
+	if err != nil {
+		return err
+	}
 	time.Sleep(1000 * time.Millisecond)
+	return nil
 }
 
-func (gl *GoLora) ChangeMode(mode internal.LoraMode) {
+func (gl *GoLora) ChangeMode(mode internal.LoraMode) error {
 	modeVal := gl.LoraUtils.ChangeMode(mode)
 	if err := gl.writeReg(internal.REG_OP_MODE, modeVal); err != nil {
-		return
+		return err
 	}
+	return nil
 }
 
-func (gl *GoLora) SetTXPower(txPower uint8) {
+func (gl *GoLora) SetTXPower(txPower uint8) error {
 	gl.Conf.TxPower = txPower
 	tx := 0
 	if txPower < 2 {
@@ -95,8 +154,9 @@ func (gl *GoLora) SetTXPower(txPower uint8) {
 	tx = tx - 2
 	txReg := gl.LoraUtils.SetTxPower(byte(tx))
 	if err := gl.writeReg(internal.REG_PA_CONFIG, txReg); err != nil {
-		return
+		return err
 	}
+	return nil
 }
 
 func (gl *GoLora) writeRegMany(Regs []byte, Values []byte) error {
@@ -119,19 +179,20 @@ func (gl *GoLora) writeRegMany(Regs []byte, Values []byte) error {
 	return nil
 }
 
-func (gl *GoLora) SetFrequency(freq physic.Frequency) {
+func (gl *GoLora) SetFrequency(freq physic.Frequency) error {
 	gl.Conf.Frequency = freq
 	frf := (uint64(freq) << 19) / 32000000
-	freqBytes := gl.LoraUtils.SetFreq(byte(frf))
+	freqBytes := gl.LoraUtils.SetFreq(frf)
 	registers := []byte{internal.REG_FRF_MSB, internal.REG_FRF_MID, internal.REG_FRF_LSB}
 	gl.mu.Lock()
 	defer gl.mu.Unlock()
 	if err := gl.writeRegMany(registers, freqBytes); err != nil {
-		return
+		return err
 	}
+	return nil
 }
 
-func (gl *GoLora) SetSF(sf uint8) {
+func (gl *GoLora) SetSF(sf uint8) error {
 
 	if sf < 6 {
 		sf = 6
@@ -141,20 +202,29 @@ func (gl *GoLora) SetSF(sf uint8) {
 		fmt.Println("SF Too high set to 12")
 	}
 	gl.Conf.SF = sf
-	sfReg := gl.LoraUtils.SetSF(sf)
-	values := []byte{sfReg, internal.SF_DEF_OPTIMIZE, internal.SF_DEF_THRESHOLD}
-	registers := []byte{internal.REG_MODEM_CONFIG_2, internal.REG_DETECTION_OPTIMIZE, internal.REG_DETECTION_THRESHOLD}
-
 	gl.mu.Lock()
 	defer gl.mu.Unlock()
+	sfReg := gl.LoraUtils.SetSF(sf)
+	currentConf, err := gl.readReg(internal.REG_MODEM_CONFIG_2)
+	if err != nil {
+		return err
+	}
+	currentConfFourtMsb := currentConf & 0x0f
+	overWritenConf := sfReg | currentConfFourtMsb
+	values := []byte{overWritenConf, internal.SF_DEF_OPTIMIZE, internal.SF_DEF_THRESHOLD}
+	registers := []byte{internal.REG_MODEM_CONFIG_2, internal.REG_DETECTION_OPTIMIZE, internal.REG_DETECTION_THRESHOLD}
 	if sf == 6 {
 		values[1] = internal.SF_6_OPTIMIZE
 		values[2] = internal.SF_6_THRESHOLD
 	}
-	_ = gl.writeRegMany(registers, values)
+	err = gl.writeRegMany(registers, values)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
-func (gl *GoLora) SetBW(bw uint64) {
+func (gl *GoLora) SetBW(bw uint64) error {
 	var sbw uint8
 	bwMaps := map[BW]uint8{
 		BW_1: 1,
@@ -174,34 +244,55 @@ func (gl *GoLora) SetBW(bw uint64) {
 			sbw = 9
 		}
 	}
-	gl.Conf.BW = sbw
+
+	gl.mu.Lock()
+	defer gl.mu.Unlock()
+	gl.Conf.BW = bw
 	bwReg := gl.LoraUtils.SetBW(sbw)
-	gl.mu.Lock()
-	defer gl.mu.Unlock()
-	_ = gl.writeReg(internal.REG_MODEM_CONFIG_1, bwReg)
-
+	currentConf, err := gl.readReg(internal.REG_MODEM_CONFIG_1)
+	currentConfFourthMSB := currentConf & 0x0f
+	overWrittenConf := currentConfFourthMSB | bwReg
+	if err != nil {
+		return err
+	}
+	if err := gl.writeReg(internal.REG_MODEM_CONFIG_1, overWrittenConf); err != nil {
+		return err
+	}
+	return nil
 }
 
-func (gl *GoLora) SetCrc(enable bool) {
-	crcReg := gl.LoraUtils.SetCrc(enable)
+func (gl *GoLora) SetCrc(enable bool) error {
 	gl.mu.Lock()
 	defer gl.mu.Unlock()
-	_ = gl.writeReg(internal.REG_MODEM_CONFIG_2, crcReg)
+	currentModemConf, err := gl.readReg(internal.REG_MODEM_CONFIG_2)
+	if err != nil {
+		return err
+	}
+	updatedConf := gl.LoraUtils.SetCrc(enable, currentModemConf)
+	if err := gl.writeReg(internal.REG_MODEM_CONFIG_2, updatedConf); err != nil {
+		return err
+	}
+	return nil
 }
 
-func (gl *GoLora) SetPreamble(length uint16) {
+func (gl *GoLora) SetPreamble(length uint16) error {
 	preambleReg := gl.LoraUtils.SetPreamble(length)
 	registers := []byte{internal.REG_PREAMBLE_MSB, internal.REG_PREAMBLE_LSB}
 	gl.mu.Lock()
 	defer gl.mu.Unlock()
-	_ = gl.writeRegMany(registers, preambleReg)
+	if err := gl.writeRegMany(registers, preambleReg); err != nil {
+		return err
+	}
+	return nil
 }
 
-func (gl *GoLora) SetSyncWord(syncWord uint8) {
-	syncWordValue := gl.LoraUtils.SetSyncWord(syncWord)
+func (gl *GoLora) SetSyncWord(syncWord uint8) error {
 	gl.mu.Lock()
 	defer gl.mu.Unlock()
-	_ = gl.writeReg(internal.REG_SYNC_WORD, syncWordValue)
+	if err := gl.writeReg(internal.REG_SYNC_WORD, syncWord); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (gl *GoLora) CheckConn() error {
@@ -212,13 +303,16 @@ func (gl *GoLora) CheckConn() error {
 		return err
 	}
 	if version != 0x12 {
-		return errors.New("Check Your Connection")
+		return errors.New("check Your Connection")
 	}
 	return nil
 }
 
-func (gl *GoLora) setFifoPtr(ptr uint8) {
-	_ = gl.writeReg(internal.REG_FIFO_ADDR_PTR, ptr)
+func (gl *GoLora) setFifoPtr(ptr uint8) error {
+	if err := gl.writeReg(internal.REG_FIFO_ADDR_PTR, ptr); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (gl *GoLora) sendToFifo(buff []byte) error {
@@ -252,8 +346,12 @@ func (gl *GoLora) waitTxDone() error {
 func (gl *GoLora) SendPacket(buff []byte) error {
 	gl.mu.Lock()
 	defer gl.mu.Unlock()
-	gl.ChangeMode(internal.Idle)
-	gl.setFifoPtr(0)
+	if err := gl.ChangeMode(internal.Idle); err != nil {
+		return err
+	}
+	if err := gl.setFifoPtr(0); err != nil {
+		return err
+	}
 	if err := gl.sendToFifo(buff); err != nil {
 		return err
 	}
@@ -262,8 +360,25 @@ func (gl *GoLora) SendPacket(buff []byte) error {
 		return err
 	}
 
-	gl.ChangeMode(internal.Tx)
+	if err := gl.ChangeMode(internal.Tx); err != nil {
+		return err
+	}
 	if err := gl.waitTxDone(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (gl *GoLora) SetHeader(header Header) error {
+	gl.mu.Lock()
+	defer gl.mu.Unlock()
+	gl.Conf.Header = header
+	currentConf, err := gl.readReg(internal.REG_MODEM_CONFIG_1)
+	if err != nil {
+		return err
+	}
+	newConf := gl.LoraUtils.SetHeader(bool(header), currentConf)
+	if err := gl.writeReg(internal.REG_MODEM_CONFIG_1, newConf); err != nil {
 		return err
 	}
 	return nil
@@ -281,7 +396,17 @@ func (gl *GoLora) ReceivePacket() ([]byte, error) {
 		return nil, err
 	}
 
-	pktLen, err := gl.LoraUtils.GetPktLenByHeader(bool(gl.Conf.Header))
+	if err := gl.ChangeMode(internal.Idle); err != nil {
+		return nil, err
+	}
+
+	pktLen := byte(0)
+	if gl.Conf.Header {
+		pktLen, err = gl.readReg(internal.REG_RX_NB_BYTES)
+	} else {
+		pktLen, err = gl.readReg(internal.REG_PAYLOAD_LENGTH)
+	}
+
 	if err != nil {
 		return nil, err
 	}
@@ -295,7 +420,7 @@ func (gl *GoLora) ReceivePacket() ([]byte, error) {
 		return nil, err
 	}
 
-	data := make([]byte, pktLen)
+	data := make([]byte, int(pktLen))
 	for i := 0; uint8(i) < pktLen; i++ {
 		data[i], err = gl.readReg(internal.REG_FIFO)
 	}
@@ -305,19 +430,24 @@ func (gl *GoLora) ReceivePacket() ([]byte, error) {
 	return data, nil
 }
 
-func (gl *GoLora) SetCodingRate(denum uint8) {
+func (gl *GoLora) SetCodingRate(denum uint8) error {
 	if denum < 5 {
 		denum = 5
 	} else if denum > 8 {
 		denum = 8
 	}
-
-	var cr uint8 = denum - 4
-	modemConf, _ := gl.readReg(internal.REG_MODEM_CONFIG_2)
-	crReg := gl.LoraUtils.SetCodingRate(cr, modemConf)
+	var cr = denum - 4
 	gl.mu.Lock()
 	defer gl.mu.Unlock()
-	_ = gl.writeReg(internal.REG_MODEM_CONFIG_1, crReg)
+	currentModemConf, err := gl.readReg(internal.REG_MODEM_CONFIG_1)
+	if err != nil {
+		return err
+	}
+	crReg := gl.LoraUtils.SetCodingRate(cr, currentModemConf)
+	if err := gl.writeReg(internal.REG_MODEM_CONFIG_1, crReg); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (gl *GoLora) IsReceived() (bool, error) {
@@ -372,16 +502,22 @@ func (gl *GoLora) waitForInterrupt(millis time.Duration) error {
 func (gl *GoLora) waitForPacket(millis time.Duration) error {
 	gl.mu.Lock()
 	defer gl.mu.Unlock()
-	gl.ChangeMode(internal.Idle)
-	err := gl.writeReg(internal.REG_IRQ_FLAGS, 0x9f)
-	if err != nil {
+
+	if err := gl.ChangeMode(internal.Idle); err != nil {
 		return err
 	}
-	err = gl.writeReg(internal.REG_DIO_MAPPING_1, 0x00)
-	if err != nil {
+
+	if err := gl.writeReg(internal.REG_IRQ_FLAGS, 0x9f); err != nil {
 		return err
 	}
-	gl.ChangeMode(internal.RxContinuous)
+
+	if err := gl.writeReg(internal.REG_DIO_MAPPING_1, 0x00); err != nil {
+		return err
+	}
+
+	if err := gl.ChangeMode(internal.RxContinuous); err != nil {
+		return err
+	}
 	if err := gl.waitForInterrupt(millis); err != nil {
 		return err
 	}
@@ -397,13 +533,14 @@ func (gl *GoLora) rxDoneWrapper() func() bool {
 		return true
 	}
 }
+
 func (gl *GoLora) eventChecker(event Event) (func() bool, error) {
 	var checkerFunc func() bool = nil
 	var err error
 	if event == OnRxDone {
 		checkerFunc = gl.rxDoneWrapper()
 	} else {
-		err = errors.New("Not Implemented")
+		err = errors.New("not Implemented")
 	}
 	return checkerFunc, err
 }
@@ -467,7 +604,10 @@ func (gl *GoLora) GetLastPktSNR() (uint8, error) {
 func (gl *GoLora) Destroy() {
 	gl.mu.Lock()
 	defer gl.mu.Unlock()
-	gl.ChangeMode(internal.Sleep)
+
+	if err := gl.ChangeMode(internal.Sleep); err != nil {
+		return
+	}
 
 	if gl.cb != nil {
 		close(gl.cbStopper)
