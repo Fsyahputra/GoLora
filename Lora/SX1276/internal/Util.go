@@ -54,9 +54,10 @@ func (lu *LoraUtils) CheckData(irq byte) error {
 		err = errors.New("no Packet Received")
 	}
 
-	if irq&IRQ_PAYLOAD_CRC_ERROR_MASK == 0 {
-		err = errors.New("packet Rusak")
+	if irq&IRQ_PAYLOAD_CRC_ERROR_MASK == 0x20 {
+		err = errors.New("packet damaged or lost in transmit")
 	}
+
 	return err
 
 }
@@ -69,12 +70,14 @@ func (lu *LoraUtils) SetPreamble(length uint16) []byte {
 
 func (lu *LoraUtils) SetCrc(enable bool, currentModemConfig byte) byte {
 	crc := byte(0x00)
+	updateConfig := currentModemConfig
 	if enable {
 		crc = crc | 0x04
+		updateConfig = currentModemConfig | crc
 	} else {
-		crc = 0x00
+		crc = 0xfb
+		updateConfig = currentModemConfig & crc
 	}
-	updateConfig := currentModemConfig | crc
 	return updateConfig
 }
 
