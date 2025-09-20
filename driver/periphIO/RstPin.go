@@ -14,7 +14,7 @@ type RSTPin struct {
 func NewRstPinPeriphIO(pinName string) (*RSTPin, error) {
 	p := gpioreg.ByName(pinName)
 	if p == nil {
-		return nil, errors.New("GPIO does not exist")
+		return nil, errors.New("RstPin GPIO does not exist")
 	}
 	rst := &RSTPin{pin: p}
 	return rst, nil

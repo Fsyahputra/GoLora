@@ -54,7 +54,7 @@ func (lu *LoraUtils) CheckData(irq byte) error {
 		err = errors.New("no Packet Received")
 	}
 
-	if irq&IRQ_PAYLOAD_CRC_ERROR_MASK == 0x20 {
+	if irq&IRQ_PAYLOAD_CRC_ERROR_MASK != 0 {
 		err = errors.New("packet damaged or lost in transmit")
 	}
 

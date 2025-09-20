@@ -14,7 +14,7 @@ type CbPin struct {
 func NewCbPin(pinName string) (*CbPin, error) {
 	p := gpioreg.ByName(pinName)
 	if p == nil {
-		return nil, errors.New("GPIO does not exist")
+		return nil, errors.New("CbPin GPIO does not exist")
 	}
 	pin := &CbPin{Pin: p}
 	if err := pin.Init(); err != nil {
@@ -24,7 +24,7 @@ func NewCbPin(pinName string) (*CbPin, error) {
 }
 
 func (cbp *CbPin) Init() error {
-	err := cbp.Pin.In(gpio.PullDown, gpio.RisingEdge)
+	err := cbp.Pin.In(gpio.PullNoChange, gpio.BothEdges)
 	if err != nil {
 		return err
 	}

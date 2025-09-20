@@ -572,8 +572,10 @@ func (gl *GoLora) eventChecker(event Event) (func() bool, error) {
 	var err error
 	if event == OnRxDone {
 		checkerFunc = gl.rxDoneWrapper()
+	} else if event == OnTxDone {
+		err = errors.New("OnTxDone Not Implemented Yet")
 	} else {
-		err = errors.New("not Implemented")
+		err = errors.New("event not recognized")
 	}
 	return checkerFunc, err
 }
@@ -635,30 +637,36 @@ func (gl *GoLora) GetLastPktSNR() (uint8, error) {
 }
 
 func (gl *GoLora) Destroy() error {
+	defer func() {
+		if gl.cbStopper != nil {
+			close(gl.cbStopper)
+			gl.cb = nil
+			gl.cbStopper = nil
+		}
+	}()
 	if err := gl.ChangeMode(internal.Sleep); err != nil {
 		return err
 	}
 	if err := gl.Reset(); err != nil {
 		return err
 	}
-	if gl.cb != nil {
-		close(gl.cbStopper)
-		gl.cb = nil
-	}
 	return nil
 }
 
 func (gl *GoLora) DumpRegisters() ([]RegVal, error) {
-	regVal := make([]RegVal, 0)
-	registers := make([]byte, 0)
-	values := make([]byte, 0)
+	registers := make([]byte, 0x26)
+	regVal := make([]RegVal, len(registers))
+	values := make([]byte, len(registers))
 	var err error
 	for i := 0; i < 0x26; i++ {
-		registers = append(registers, byte(i))
+		registers[i] = byte(i)
 	}
 	gl.mu.Lock()
 	for idx, reg := range registers {
 		values[idx], err = gl.readReg(reg)
+		if err != nil {
+			break
+		}
 		regVal[idx] = RegVal{
 			Reg: reg,
 			Val: values[idx],
@@ -669,4 +677,8 @@ func (gl *GoLora) DumpRegisters() ([]RegVal, error) {
 		return nil, err
 	}
 	return regVal, nil
+}
+
+func (gl *GoLora) GetConf() LoraConf {
+	return gl.Conf
 }

@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"periph.io/x/conn/v3/gpio"
+	"periph.io/x/conn/v3/gpio/gpioreg"
 	"periph.io/x/conn/v3/physic"
 	"periph.io/x/conn/v3/spi"
 	"periph.io/x/conn/v3/spi/spireg"
@@ -15,7 +16,7 @@ import (
 type SpiConf struct {
 	Freq   physic.Frequency
 	Mode   spi.Mode
-	Bit    int
+	Bit    uint
 	CSName string
 	CSSoft bool
 	Reg    string
@@ -41,31 +42,34 @@ func NewDefaultConf() *SpiConf {
 	}
 }
 
-func NewSpiConf(conf *SpiConf) (*SpiConf, error) {
-	defConf := NewDefaultConf()
-	if conf.Freq != 0 {
-		defConf.Freq = conf.Freq
+func (c *SpiConf) Validate() error {
+	if c == nil {
+		return errors.New("spi conf is nil")
 	}
-	if conf.Mode != 0 {
-		defConf.Mode = conf.Mode
+	if c.Freq <= physic.Frequency(0) {
+		return errors.New("freq must be greater than 0")
 	}
-	if conf.Bit != 0 {
-		defConf.Bit = conf.Bit
+	if c.Bit != 8 && c.Bit != 16 {
+		return errors.New("bit must be 8, or 16")
 	}
-	if conf.CSName == "" && conf.CSSoft == true {
-		defConf.CSName = conf.CSName
-		defConf.CSSoft = conf.CSSoft
-		return nil, errors.New("CSName or CSSoft is required")
+
+	if c.Mode < 0 || c.Mode > 3 {
+		return errors.New("mode must be 0, 1, 2, or 3")
 	}
-	if conf.Reg != "" {
-		defConf.Reg = conf.Reg
+
+	if c.CSName == "" && c.CSSoft == true {
+		return errors.New("you Should provide CSName when using software CS control")
+	}
+
+	if c.CSName != "" && c.CSSoft == false {
+		return errors.New("you Shouldn't provide CSName when using hardware CS control")
 	}
 	re := regexp.MustCompile(`^/dev/spidev[0-9]+\.[0-9]+$`)
 
-	if !re.MatchString(defConf.Reg) {
-		return nil, errors.New("invalid Register")
+	if !re.MatchString(c.Reg) {
+		return errors.New("invalid Register")
 	}
-	return defConf, nil
+	return nil
 }
 
 func NewSPI(spiConf *SpiConf) (*SPI, error) {
@@ -101,36 +105,48 @@ func (pi *SPI) Init() error {
 	if err != nil {
 		return err
 	}
-	conn, err := p.Connect(pi.Freq, pi.Mode, pi.Bit)
+	conn, err := p.Connect(pi.Freq, pi.Mode, int(pi.Bit))
 	if err != nil {
 		return err
 	}
 	pi.SpiCloser = p
 	pi.SpiDev = conn
+
+	if !pi.CSSoft {
+		return nil
+	}
+	csp := gpioreg.ByName(pi.CSName)
+	if csp == nil {
+		return errors.New("CsPin GPIO does not exist")
+	}
+	pi.CSPin = csp
 	return nil
 }
 
-func (pi *SPI) closeConn() {
+func (pi *SPI) CloseConn() {
 	if pi.SpiCloser != nil {
-		pi.SpiCloser.Close()
+		_ = pi.SpiCloser.Close()
 	}
 }
 
 func (pi *SPI) checkSpiDevAndCloser() {
 	err := pi.checkSpiDev()
 	if err != nil {
-		pi.closeConn()
+		pi.CloseConn()
 		log.Fatal(err.Error())
 	}
 	err = pi.checkSpiCloser()
 	if err != nil {
-		pi.closeConn()
+		pi.CloseConn()
 		log.Fatal(err.Error())
 	}
 }
 
 func (pi *SPI) softTx(reg, value byte) (byte, error) {
-	pi.CSPin.Out(gpio.Low)
+	err := pi.CSPin.Out(gpio.Low)
+	if err != nil {
+		return 0, err
+	}
 	defer pi.CSPin.Out(gpio.High)
 	tx := []byte{reg, value}
 	rx := make([]byte, len(tx))

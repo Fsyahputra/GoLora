@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/Fsyahputra/GoLora/Lora/SX1276/internal"
 	"github.com/Fsyahputra/GoLora/driver"
@@ -1052,6 +1053,249 @@ func TestGoLora_Begin(t *testing.T) {
 				return
 			}
 			assert.Error(t, err)
+		})
+	}
+}
+
+func TestGoLora_Destroy(t *testing.T) {
+	driverList, tests := createDrvMockAndTest()
+	for idx := range driverList {
+		driverList[idx].RSTPin = &mockRstPin{
+			lowFunc: func() error {
+				return nil
+			},
+			highFunc: func() error {
+				return nil
+			},
+		}
+	}
+	for idx, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gl := NewGoLoraSX1276(driverList[idx], newDefLoraConf())
+			err := gl.Destroy()
+			if err != nil {
+				assert.Error(t, err)
+				return
+			}
+			assert.NoError(t, err)
+		})
+	}
+}
+
+func TestGoLora_DumpRegisters(t *testing.T) {
+	driverList, tests := createDrvMockAndTest()
+	for idx, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gl := NewGoLoraSX1276(driverList[idx], newDefLoraConf())
+			_, err := gl.DumpRegisters()
+			if err != nil {
+				assert.Error(t, err)
+				return
+			}
+			assert.NoError(t, err)
+		})
+	}
+}
+
+func TestGoLora_GetConf(t *testing.T) {
+	newLoraConf := newDefLoraConf()
+	tests := struct {
+		name string
+		want LoraConf
+	}{
+		name: "it Should return the actual config",
+		want: newLoraConf,
+	}
+
+	t.Run(tests.name, func(t *testing.T) {
+		gl := NewGoLoraSX1276(testsDrvMock(nil, nil)(), newDefLoraConf())
+		conf := gl.GetConf()
+		assert.Equal(t, tests.want, conf)
+	})
+}
+
+func TestGoLora_RegisterCb_CalledCallback(t *testing.T) {
+	gl := NewGoLoraSX1276(&driver.Driver{
+		RSTPin: nil,
+		CbPin: &mockCbPin{
+			readValFunc: func() (bool, error) {
+				return true, nil
+			},
+		},
+		ModComm: &mockModConn{
+			send: func(reg, val byte) error {
+				return nil
+			},
+			read: func(reg byte) (byte, error) {
+				return 0xff, nil
+			},
+		},
+	}, newDefLoraConf())
+
+	ch := make(chan bool, 1)
+
+	stopper, err := gl.RegisterCb(OnRxDone, func() {
+		ch <- true
+	})
+	assert.NoError(t, err)
+
+	select {
+	case val := <-ch:
+		assert.Equal(t, true, val)
+	case <-time.After(100 * time.Millisecond):
+		t.Error("callback was not called")
+	}
+
+	close(stopper)
+	close(ch)
+}
+
+func TestGoLora_RegisterCb_NotCalledCallback(t *testing.T) {
+	gl := NewGoLoraSX1276(&driver.Driver{
+		RSTPin: nil,
+		CbPin: &mockCbPin{
+			readValFunc: func() (bool, error) {
+				return false, nil
+			},
+		},
+		ModComm: &mockModConn{
+			send: func(reg, val byte) error {
+				return nil
+			},
+			read: func(reg byte) (byte, error) {
+				return 0xff, nil
+			},
+		},
+	}, newDefLoraConf())
+
+	ch := make(chan bool, 1)
+
+	stopper, err := gl.RegisterCb(OnRxDone, func() {
+		ch <- true
+	})
+	assert.NoError(t, err)
+
+	select {
+	case val := <-ch:
+		t.Errorf("callback should not have been called, but got %v", val)
+	case <-time.After(100 * time.Millisecond):
+		// ✅ expected path: no callback
+	}
+
+	close(stopper)
+	close(ch)
+}
+
+func TestGoLora_RegisterCb_Ok(t *testing.T) {
+	gl := NewGoLoraSX1276(testsDrvMock(nil, nil)(), newDefLoraConf())
+	stopper, err := gl.RegisterCb(OnRxDone, func() {})
+	assert.NoError(t, err)
+	if stopper != nil {
+		stopper <- struct{}{}
+	}
+}
+
+func TestGoLora_RegisterCb_UnknownEvent(t *testing.T) {
+	gl := NewGoLoraSX1276(testsDrvMock(nil, nil)(), newDefLoraConf())
+	stopper, err := gl.RegisterCb(99, func() {})
+	assert.EqualError(t, err, "event not recognized")
+	if stopper != nil {
+		stopper <- struct{}{}
+	}
+}
+
+func TestGoLora_RegisterCb_NotImplemented(t *testing.T) {
+	gl := NewGoLoraSX1276(testsDrvMock(nil, nil)(), newDefLoraConf())
+	stopper, err := gl.RegisterCb(OnTxDone, func() {})
+	assert.EqualError(t, err, "OnTxDone Not Implemented Yet")
+	if stopper != nil {
+		stopper <- struct{}{}
+	}
+}
+
+func TestGoLora_SendPacket(t *testing.T) {
+	driverList, tests := createDrvMockAndTest()
+	for idx, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gl := NewGoLoraSX1276(driverList[idx], newDefLoraConf())
+			err := gl.SendPacket([]byte("test data"))
+			if err != nil {
+				assert.Error(t, err)
+				return
+			}
+			assert.NoError(t, err)
+		})
+	}
+}
+
+func TestGoLora_ReceivePacket(t *testing.T) {
+	drvMock := func(sendErr, readErr error, irq byte) *driver.Driver {
+		return &driver.Driver{
+			RSTPin: nil,
+			CbPin:  nil,
+			ModComm: &mockModConn{
+				send: func(reg, val byte) error {
+					return sendErr
+				},
+				read: func(reg byte) (byte, error) {
+					return irq, readErr
+				},
+			},
+		}
+	}
+
+	tests := []struct {
+		name    string
+		irq     byte
+		want    error
+		sendErr error
+		readErr error
+	}{
+		{
+			name:    "it Should return nil if packet received and crc no error",
+			irq:     0b01000000,
+			want:    nil,
+			sendErr: nil,
+			readErr: nil,
+		},
+		{
+			name:    "it Should return err if packet received but crc error",
+			irq:     0b01100000,
+			want:    errors.New("packet damaged or lost in transmit"),
+			sendErr: nil,
+			readErr: nil,
+		},
+		{
+			name:    "it Should return err if packet not received",
+			irq:     0b00000000,
+			want:    errors.New("no Packet Received"),
+			sendErr: nil,
+			readErr: nil,
+		},
+		{
+			name:    "it Should return err if send err happened",
+			irq:     0b01000000,
+			want:    errors.New("send test err"),
+			sendErr: errors.New("send test err"),
+			readErr: nil,
+		},
+		{
+			name:    "it Should return err if read err happened",
+			irq:     0b01000000,
+			want:    errors.New("read test err"),
+			sendErr: nil,
+			readErr: errors.New("read test err"),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gl := NewGoLoraSX1276(drvMock(tt.sendErr, tt.readErr, tt.irq), newDefLoraConf())
+			_, err := gl.ReceivePacket()
+			if tt.want == nil {
+				assert.NoError(t, err)
+				return
+			}
+			assert.EqualError(t, err, tt.want.Error())
 		})
 	}
 }
