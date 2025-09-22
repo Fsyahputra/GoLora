@@ -23,7 +23,6 @@ type SpiConf struct {
 }
 
 type SPI struct {
-	Reg       string
 	SpiDev    spi.Conn
 	SpiCloser spi.PortCloser
 	*SpiConf
@@ -101,9 +100,9 @@ func (pi *SPI) checkSpiCloser() error {
 }
 
 func (pi *SPI) Init() error {
-	p, err := spireg.Open(pi.Reg)
+	p, err := spireg.Open(pi.SpiConf.Reg)
 	if err != nil {
-		return err
+		return errors.New("spireg: can't open unknown port")
 	}
 	conn, err := p.Connect(pi.Freq, pi.Mode, int(pi.Bit))
 	if err != nil {
