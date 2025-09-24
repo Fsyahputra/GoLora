@@ -1,5 +1,9 @@
 package SX1276
 
+import (
+	"github.com/Fsyahputra/GoLora/Lora/SX1276/internal"
+)
+
 type BW uint64
 
 const (
@@ -26,3 +30,13 @@ const (
 	OnRxDone = iota
 	OnTxDone
 )
+
+const (
+	Sleep        = LoraMode(internal.MODE_SLEEP)
+	Idle         = LoraMode(internal.MODE_STDBY)
+	Tx           = LoraMode(internal.MODE_TX)
+	RxSingle     = LoraMode(internal.MODE_RX_SINGLE)
+	RxContinuous = LoraMode(internal.MODE_RX_CONTINUOUS)
+)
+
+type LoraMode byte

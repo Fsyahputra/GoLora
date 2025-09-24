@@ -2,6 +2,7 @@ package periphIO
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -10,6 +11,13 @@ import (
 	"periph.io/x/conn/v3/gpio/gpioreg"
 	"periph.io/x/conn/v3/physic"
 	"periph.io/x/host/v3"
+)
+
+const (
+	RSTPINMOD0 = "GPIO36"
+	RSTPINMOD1 = "GPIO38"
+	CBPINMOD0  = "GPIO133"
+	CBPINMOD1  = "GPIO134"
 )
 
 func initHost() {
@@ -51,31 +59,33 @@ func TestNewRstPinPeriphIO(t *testing.T) {
 	}
 }
 
+// MODULE0 is CONNECTED TO GPIO36 (RST) AND SPIDEV0.0
+// MODULE1 is CONNECTED TO GPIO38 (RST) AND SPIDEV4.0
 func TestRSTPin_HighLow(t *testing.T) {
 	initHost()
-	rstPin, err := NewRstPinPeriphIO("GPIO134")
+	mod0rstPin, err := NewRstPinPeriphIO("GPIO36")
 	if err != nil {
 		t.Fatalf("Failed to create RSTPin: %v", err)
 	}
-	reader := gpioreg.ByName("GPIO133")
-	if reader == nil {
+	mod0Reader := gpioreg.ByName("GPIO133")
+	if mod0Reader == nil {
 		t.Fatalf("Failed to find GPIO133")
 	}
-	rstPin.pin.Out(gpio.Low) // Ensure starting state is Low
-	reader.In(gpio.PullNoChange, gpio.BothEdges)
+	mod0rstPin.pin.Out(gpio.Low) // Ensure starting state is Low
+	mod0Reader.In(gpio.PullNoChange, gpio.BothEdges)
 	tests := []struct {
 		name   string
 		action func() error
 		want   bool
 	}{
 		{
-			name:   "Set High",
-			action: rstPin.High,
+			name:   "Set High module 0",
+			action: mod0rstPin.High,
 			want:   true,
 		},
 		{
-			name:   "Set Low",
-			action: rstPin.Low,
+			name:   "Set Low module 0",
+			action: mod0rstPin.Low,
 			want:   false,
 		},
 	}
@@ -85,7 +95,8 @@ func TestRSTPin_HighLow(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Action failed: %v", err)
 			}
-			val := reader.Read()
+			time.Sleep(1000 * time.Millisecond) // Small delay to ensure the state change is registered
+			val := mod0Reader.Read()
 			if tt.want {
 				assert.Equal(t, gpio.High, val, "Expected pin to be High")
 			} else {
@@ -93,55 +104,106 @@ func TestRSTPin_HighLow(t *testing.T) {
 			}
 		})
 	}
+
+	mod1rstPin, err := NewRstPinPeriphIO("GPIO38")
+	if err != nil {
+		t.Fatalf("Failed to create RSTPin: %v", err)
+	}
+	mod1Reader := gpioreg.ByName("GPIO134")
+	if mod1Reader == nil {
+		t.Fatalf("Failed to find GPIO134")
+	}
+	mod1rstPin.pin.Out(gpio.Low) // Ensure starting state is Low
+	mod1Reader.In(gpio.PullNoChange, gpio.BothEdges)
+	tests2 := []struct {
+		name   string
+		action func() error
+		want   bool
+	}{
+		{
+			name:   "Set High module 1",
+			action: mod1rstPin.High,
+			want:   true,
+		},
+		{
+			name:   "Set Low module 1",
+			action: mod1rstPin.Low,
+			want:   false,
+		},
+	}
+	for _, tt := range tests2 {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.action()
+			if err != nil {
+				t.Fatalf("Action failed: %v", err)
+			}
+			time.Sleep(1000 * time.Millisecond) // Small delay to ensure the state change is registered
+			val := mod1Reader.Read()
+			if tt.want {
+				assert.Equal(t, gpio.High, val, "Expected pin to be High")
+			} else {
+				assert.Equal(t, gpio.Low, val, "Expected pin to be Low")
+			}
+		})
+	}
+
+}
+
+func readValTest(cbPinName, testPinName string, level gpio.Level, want bool) func(t *testing.T) {
+	return func(t *testing.T) {
+		cbPin, err := NewCbPin(cbPinName)
+		if err != nil {
+			t.Fatalf("Failed to create CbPin: %v", err)
+		}
+
+		err = cbPin.Init()
+		if err != nil {
+			t.Fatalf("Failed to initialize CbPin: %v", err)
+		}
+		testPin := gpioreg.ByName(testPinName)
+		if testPin == nil {
+			t.Fatalf("Failed to find %s", testPinName)
+		}
+		err = testPin.Out(level)
+		if err != nil {
+			t.Fatalf("Failed to set %s: %v", testPinName, err)
+		}
+		time.Sleep(10 * time.Millisecond)
+		val, err := cbPin.ReadVal()
+		if err != nil {
+			t.Fatalf("ReadVal failed: %v", err)
+		}
+		assert.Equal(t, want, val, "ReadVal did not return expected value")
+	}
+}
+func ReadVal(mod int) (testFunc []func(t *testing.T), names []string, err error) {
+	initHost()
+	var cbPinName, testPinName string
+	if mod == 0 {
+		cbPinName = CBPINMOD0
+		testPinName = RSTPINMOD0
+	} else if mod == 1 {
+		cbPinName = CBPINMOD1
+		testPinName = RSTPINMOD1
+	} else {
+		return nil, nil, errors.New("Invalid module number")
+	}
+
+	return []func(t *testing.T){
+		readValTest(cbPinName, testPinName, gpio.High, true),
+		readValTest(cbPinName, testPinName, gpio.Low, false),
+	}, []string{fmt.Sprintf("MOD %v it should read High", mod), fmt.Sprintf("MOD %v it should read Low", mod)}, nil
 }
 
 func TestCbPin_ReadVal(t *testing.T) {
-	initHost()
-	cbPin, err := NewCbPin("GPIO134")
-	if err != nil {
-		t.Fatalf("Failed to create CbPin: %v", err)
-	}
-
-	err = cbPin.Init()
-	if err != nil {
-		t.Fatalf("Failed to initialize CbPin: %v", err)
-	}
-	p := gpioreg.ByName("GPIO133")
-	if p == nil {
-		t.Fatalf("Failed to find GPIO133")
-	}
-	err = p.Out(gpio.Low)
-	if err != nil {
-		t.Fatalf("Failed to set GPIO133 to Low: %v", err)
-	}
-
-	tests := []struct {
-		name string
-		want gpio.Level
-	}{
-		{
-			name: "ReadVal Must Be High",
-			want: gpio.High,
-		},
-		{
-			name: "ReadVal Must Be Low",
-			want: gpio.Low,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err = p.Out(tt.want)
-			if err != nil {
-				t.Fatalf("Failed to set GPIO133: %v", err)
-			}
-			time.Sleep(10 * time.Millisecond)
-			val, err := cbPin.ReadVal()
-			if err != nil {
-				t.Fatalf("ReadVal failed: %v", err)
-			}
-			assert.Equal(t, bool(tt.want), val, "ReadVal did not return expected value")
-		})
+	for mod := 0; mod <= 1; mod++ {
+		testFuncs, names, err := ReadVal(mod)
+		if err != nil {
+			t.Fatalf("Setup for MOD %v failed: %v", mod, err)
+		}
+		for i, testFunc := range testFuncs {
+			t.Run(names[i], testFunc)
+		}
 	}
 }
 
@@ -338,7 +400,7 @@ func TestNewDriver(t *testing.T) {
 
 	for _, tt := range tests2 {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := NewDriver("GPIO34", "GPIO35", tt.spiConf)
+			_, err := NewDriver(CBPINMOD0, RSTPINMOD0, tt.spiConf)
 			if tt.want == nil {
 				assert.NoError(t, err)
 			} else {
@@ -408,115 +470,160 @@ func resetMod(p gpio.PinIO) {
 	time.Sleep(500 * time.Millisecond)
 }
 
-func TestSPI_ReadFromMod(t *testing.T) {
+func ReadMod(mod int) (func(t *testing.T), error) {
 	initHost()
-	defSpiConf := NewDefaultConf()
-	p := gpioreg.ByName("GPIO46")
-	if p == nil {
-		t.Fatalf("Failed to find GPIO46")
-	}
-	resetMod(p)
-	spi, err := NewSPI(defSpiConf)
+	conf, rstPinName, err := getConfForMod(mod)
 	if err != nil {
-		t.Fatalf("Failed to create SPI: %v", err)
+		return nil, err
 	}
-	defer spi.CloseConn()
+	rstPin := gpioreg.ByName(rstPinName)
+	if rstPin == nil {
+		return nil, errors.New("Failed to find " + rstPinName)
+	}
+	resetMod(rstPin)
+	spi, err := NewSPI(conf)
+	if err != nil {
+		return nil, errors.New("Failed to create SPI: " + err.Error())
+	}
 	err = spi.Init()
 	if err != nil {
-		t.Fatalf("Failed to initialize SPI: %v", err)
+		return nil, errors.New("Failed to initialize SPI: " + err.Error())
 	}
 	tests := struct {
 		name   string
 		input  byte
 		expect byte
 	}{
-		name:   "it Should read the version from the module",
 		input:  0x42,
 		expect: 0x12,
 	}
-	t.Run(tests.name, func(t *testing.T) {
+	return func(t *testing.T) {
 		val, err := spi.ReadFromMod(tests.input)
 		if err != nil {
 			t.Fatalf("ReadFromMod failed: %v", err)
 		}
 		assert.Equal(t, tests.expect, val, "ReadFromMod did not return expected value")
-	})
+		//spi.CloseConn()
+	}, nil
+}
+
+func getConfForMod(mod int) (*SpiConf, string, error) {
+	defSpiConf := NewDefaultConf()
+	if mod == 0 {
+		defSpiConf.Reg = "/dev/spidev0.0"
+		return defSpiConf, RSTPINMOD0, nil
+	} else if mod == 1 {
+		defSpiConf.Reg = "/dev/spidev4.0"
+		return defSpiConf, RSTPINMOD1, nil
+	}
+	return nil, "", errors.New("Invalid module number")
+}
+
+func TestSPI_ReadFromMod(t *testing.T) {
+	tests := []struct {
+		name string
+		mod  int
+	}{
+		{
+			name: "it Should read from module 0",
+			mod:  0,
+		},
+		{
+			name: "it Should read from module 1",
+			mod:  1,
+		},
+	}
+
+	for _, tt := range tests {
+		testFunc, err := ReadMod(tt.mod)
+		if err != nil {
+			t.Fatalf("Setup for %s failed: %v", tt.name, err)
+		}
+		t.Run(tt.name, testFunc)
+	}
+}
+
+func SendToMod(mod int) ([]func(t *testing.T), error) {
+	initHost()
+
+	conf, rstPinName, err := getConfForMod(mod)
+	if err != nil {
+		return nil, err
+	}
+
+	rstPin := gpioreg.ByName(rstPinName)
+	if rstPin == nil {
+		return nil, fmt.Errorf("failed to find %s", rstPinName)
+	}
+
+	resetMod(rstPin)
+
+	spi, err := NewSPI(conf)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create SPI: %w", err)
+	}
+
+	if err := spi.Init(); err != nil {
+		return nil, fmt.Errorf("failed to initialize SPI: %w", err)
+	}
+
+	testFunc1 := func(t *testing.T) {
+		expected := byte(0x09)
+		val, err := spi.ReadFromMod(0x01)
+		if err != nil {
+			t.Fatalf("ReadFromMod failed: %v", err)
+		}
+		assert.Equal(t, expected, val, "ReadFromMod did not return expected value")
+	}
+
+	testFunc2 := func(t *testing.T) {
+		writeVal := byte(0x00)
+		reg := byte(0x01) | 0x80 // masked for write
+		if err := spi.SendToMod(reg, writeVal); err != nil {
+			t.Fatalf("SendToMod failed: %v", err)
+		}
+		val, err := spi.ReadFromMod(0x01)
+		if err != nil {
+			t.Fatalf("ReadFromMod failed: %v", err)
+		}
+		assert.Equal(t, writeVal, val, "ReadFromMod did not return expected value after SendToMod")
+	}
+
+	testFunc3 := func(t *testing.T) {
+		resetMod(rstPin)
+		expected := byte(0x09)
+		val, err := spi.ReadFromMod(0x01)
+		if err != nil {
+			t.Fatalf("ReadFromMod failed: %v", err)
+		}
+		assert.Equal(t, expected, val, "ReadFromMod did not return expected value after reset")
+	}
+
+	return []func(t *testing.T){testFunc1, testFunc2, testFunc3}, nil
 }
 
 func TestSPI_SendToMod(t *testing.T) {
-	initHost()
-	defSpiConf := NewDefaultConf()
-	p := gpioreg.ByName("GPIO46")
-	if p == nil {
-		t.Fatalf("Failed to find GPIO46")
-	}
-	resetMod(p)
-
-	spi, err := NewSPI(defSpiConf)
-	if err != nil {
-		t.Fatalf("Failed to create SPI: %v", err)
-	}
-	err = spi.Init()
-	if err != nil {
-		t.Fatalf("Failed to initialize SPI: %v", err)
-	}
-	tests := struct {
-		name        string
-		reg         byte
-		expectedVal byte
+	tests := []struct {
+		name string
+		mod  int
 	}{
-		name:        "it Should read modemConf1 default value before write anything to it",
-		reg:         0x01,
-		expectedVal: 0x09, // Default value of modemConf1 register
-	}
-	t.Run(tests.name, func(t *testing.T) {
-		val, err := spi.ReadFromMod(tests.reg)
-		if err != nil {
-			t.Fatalf("ReadFromMod failed: %v", err)
-		}
-		assert.Equal(t, tests.expectedVal, val, "ReadFromMod did not return expected value")
-	})
-
-	test2 := struct {
-		name        string
-		reg         byte
-		writeVal    byte
-		expectedVal byte
-	}{
-		name:        "it Should write to modemConf1 and read back the same value",
-		reg:         0x01,
-		writeVal:    0x00,
-		expectedVal: 0x00,
+		{
+			name: "it Should send to module 0",
+			mod:  0,
+		},
+		{
+			name: "it Should send to module 1",
+			mod:  1,
+		},
 	}
 
-	t.Run(test2.name, func(t *testing.T) {
-		maskedReg := test2.reg | 0x80
-		err := spi.SendToMod(maskedReg, test2.writeVal)
+	for _, tt := range tests {
+		testFuncs, err := SendToMod(tt.mod)
 		if err != nil {
-			t.Fatalf("SendToMod failed: %v", err)
+			t.Fatalf("Setup for %s failed: %v", tt.name, err)
 		}
-		val, err := spi.ReadFromMod(test2.reg)
-		if err != nil {
-			t.Fatalf("ReadFromMod failed: %v", err)
+		for _, testFunc := range testFuncs {
+			t.Run(tt.name, testFunc)
 		}
-		assert.Equal(t, test2.expectedVal, val, "ReadFromMod did not return expected value after SendToMod")
-	})
-
-	resetMod(p)
-	tests3 := struct {
-		name        string
-		reg         byte
-		expectedVal byte
-	}{
-		name:        "it Should read modemConf1 default value before write anything to it after reset",
-		reg:         0x01,
-		expectedVal: 0x09, // Default value of modemConf1 register
 	}
-	t.Run(tests3.name, func(t *testing.T) {
-		val, err := spi.ReadFromMod(tests3.reg)
-		if err != nil {
-			t.Fatalf("ReadFromMod failed: %v", err)
-		}
-		assert.Equal(t, tests3.expectedVal, val, "ReadFromMod did not return expected value")
-	})
 }

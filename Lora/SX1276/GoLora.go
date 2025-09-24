@@ -24,12 +24,12 @@ type LoraConf struct {
 }
 type GoLora struct {
 	*driver.Driver
-	*internal.LoraUtils
+	*LoraUtils
 	Conf      LoraConf
 	mu        sync.Mutex
 	cb        func()
 	cbStopper chan struct{}
-	Mode      internal.LoraMode
+	Mode      LoraMode
 }
 
 type RegVal struct {
@@ -54,7 +54,7 @@ func (gl *GoLora) configure() error {
 func NewGoLoraSX1276(drv *driver.Driver, conf LoraConf) *GoLora {
 	gl := &GoLora{
 		Driver:    drv,
-		LoraUtils: &internal.LoraUtils{},
+		LoraUtils: &LoraUtils{},
 		Conf:      conf,
 		mu:        sync.Mutex{},
 		cb:        nil,
@@ -78,7 +78,7 @@ func (gl *GoLora) Begin() error {
 	if modVer != 0x12 {
 		return fmt.Errorf("unsupported module version: got 0x%X", modVer)
 	}
-	if err := gl.ChangeMode(internal.Sleep); err != nil {
+	if err := gl.ChangeMode(Sleep); err != nil {
 		return fmt.Errorf("failed to set sleep mode: %w", err)
 	}
 	gl.mu.Lock()
@@ -96,14 +96,14 @@ func (gl *GoLora) Begin() error {
 	if err := gl.configure(); err != nil {
 		return err
 	}
-	if err = gl.ChangeMode(internal.Idle); err != nil {
+	if err = gl.ChangeMode(Idle); err != nil {
 		return fmt.Errorf("failed to set Idle mode: %w", err)
 	}
 	return nil
 }
 
 func (gl *GoLora) readReg(reg byte) (byte, error) {
-	readReg := gl.SetReadMask(reg)
+	readReg := gl.setReadMask(reg)
 
 	rx, err := gl.ModComm.ReadFromMod(readReg)
 	if err != nil {
@@ -113,7 +113,7 @@ func (gl *GoLora) readReg(reg byte) (byte, error) {
 }
 
 func (gl *GoLora) writeReg(reg byte, value uint8) error {
-	writeReg := gl.SetWriteMask(reg)
+	writeReg := gl.setWriteMask(reg)
 	byteValue := value
 	if err := gl.ModComm.SendToMod(writeReg, byteValue); err != nil {
 		return err
@@ -135,10 +135,10 @@ func (gl *GoLora) Reset() error {
 	return nil
 }
 
-func (gl *GoLora) ChangeMode(mode internal.LoraMode) error {
+func (gl *GoLora) ChangeMode(mode LoraMode) error {
 	gl.mu.Lock()
 	defer gl.mu.Unlock()
-	modeVal := gl.LoraUtils.ChangeMode(mode)
+	modeVal := gl.LoraUtils.changeMode(mode)
 	if err := gl.writeReg(internal.REG_OP_MODE, modeVal); err != nil {
 		return err
 	}
@@ -161,7 +161,7 @@ func (gl *GoLora) SetTXPower(txPower uint8) error {
 	}
 
 	chipTx := tx - 2
-	txReg := gl.LoraUtils.SetTxPower(byte(chipTx))
+	txReg := gl.LoraUtils.setTxPower(byte(chipTx))
 	if err := gl.writeReg(internal.REG_PA_CONFIG, txReg); err != nil {
 		return err
 	}
@@ -193,7 +193,7 @@ func (gl *GoLora) writeRegMany(Regs []byte, Values []byte) error {
 func (gl *GoLora) SetFrequency(freq physic.Frequency) error {
 	gl.Conf.Frequency = freq
 	frf := (uint64(freq) << 19) / 32000000
-	freqBytes := gl.LoraUtils.SetFreq(frf)
+	freqBytes := gl.LoraUtils.setFreq(frf)
 	registers := []byte{internal.REG_FRF_MSB, internal.REG_FRF_MID, internal.REG_FRF_LSB}
 	gl.mu.Lock()
 	defer gl.mu.Unlock()
@@ -213,7 +213,7 @@ func (gl *GoLora) SetSF(sf uint8) error {
 		fmt.Println("SF Too high set to 12")
 	}
 	gl.Conf.SF = sf
-	sfReg := gl.LoraUtils.SetSF(sf)
+	sfReg := gl.LoraUtils.setSF(sf)
 
 	gl.mu.Lock()
 	defer gl.mu.Unlock()
@@ -267,7 +267,7 @@ func (gl *GoLora) SetBW(bw uint64) error {
 	}
 	gl.mu.Lock()
 	defer gl.mu.Unlock()
-	bwReg := gl.LoraUtils.SetBW(sbw)
+	bwReg := gl.LoraUtils.setBW(sbw)
 	currentConf, err := gl.readReg(internal.REG_MODEM_CONFIG_1)
 	currentConfFourthMSB := currentConf & 0x0f
 	overWrittenConf := currentConfFourthMSB | bwReg
@@ -288,7 +288,7 @@ func (gl *GoLora) SetCrc(enable bool) error {
 	if err != nil {
 		return err
 	}
-	updatedConf := gl.LoraUtils.SetCrc(enable, currentModemConf)
+	updatedConf := gl.LoraUtils.setCrc(enable, currentModemConf)
 	if err := gl.writeReg(internal.REG_MODEM_CONFIG_2, updatedConf); err != nil {
 		return err
 	}
@@ -297,7 +297,7 @@ func (gl *GoLora) SetCrc(enable bool) error {
 }
 
 func (gl *GoLora) SetPreamble(length uint16) error {
-	preambleReg := gl.LoraUtils.SetPreamble(length)
+	preambleReg := gl.LoraUtils.setPreamble(length)
 	registers := []byte{internal.REG_PREAMBLE_MSB, internal.REG_PREAMBLE_LSB}
 	gl.mu.Lock()
 	defer gl.mu.Unlock()
@@ -372,7 +372,7 @@ func (gl *GoLora) waitTxDone() error {
 }
 
 func (gl *GoLora) SendPacket(buff []byte) error {
-	if err := gl.ChangeMode(internal.Idle); err != nil {
+	if err := gl.ChangeMode(Idle); err != nil {
 		return err
 	}
 	if err := gl.setFifoPtr(0); err != nil {
@@ -387,7 +387,7 @@ func (gl *GoLora) SendPacket(buff []byte) error {
 		return err
 	}
 	gl.mu.Unlock()
-	if err := gl.ChangeMode(internal.Tx); err != nil {
+	if err := gl.ChangeMode(Tx); err != nil {
 		return err
 	}
 	if err := gl.waitTxDone(); err != nil {
@@ -404,7 +404,7 @@ func (gl *GoLora) SetHeader(header Header) error {
 	if err != nil {
 		return err
 	}
-	newConf := gl.LoraUtils.SetHeader(bool(header), currentConf)
+	newConf := gl.LoraUtils.setHeader(bool(header), currentConf)
 	if err := gl.writeReg(internal.REG_MODEM_CONFIG_1, newConf); err != nil {
 		return err
 	}
@@ -418,11 +418,11 @@ func (gl *GoLora) ReceivePacket() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := gl.LoraUtils.CheckData(irq); err != nil {
+	if err := gl.LoraUtils.checkData(irq); err != nil {
 		return nil, err
 	}
 
-	if err := gl.ChangeMode(internal.Idle); err != nil {
+	if err := gl.ChangeMode(Idle); err != nil {
 		return nil, err
 	}
 
@@ -477,7 +477,7 @@ func (gl *GoLora) SetCodingRate(denum uint8) error {
 	if err != nil {
 		return err
 	}
-	crReg := gl.LoraUtils.SetCodingRate(cr, currentModemConf)
+	crReg := gl.LoraUtils.setCodingRate(cr, currentModemConf)
 	if err := gl.writeReg(internal.REG_MODEM_CONFIG_1, crReg); err != nil {
 		return err
 	}
@@ -487,8 +487,9 @@ func (gl *GoLora) SetCodingRate(denum uint8) error {
 
 func (gl *GoLora) IsReceived() (bool, error) {
 	gl.mu.Lock()
-	data, err := gl.readReg(internal.REG_IRQ_FLAGS & internal.IRQ_RX_DONE_MASK)
+	data, err := gl.readReg(internal.REG_IRQ_FLAGS)
 	gl.mu.Unlock()
+	data = data & internal.IRQ_RX_DONE_MASK
 	isExists := false
 	if err != nil {
 		return false, err
@@ -503,27 +504,9 @@ func (gl *GoLora) IsReceived() (bool, error) {
 	return isExists, nil
 }
 
-func timer(millis time.Duration, ch chan bool) {
-	ch <- false
-	for i := 0; i < int(millis); i++ {
-		time.Sleep(time.Millisecond)
-	}
-	ch <- true
-	close(ch)
-}
-
-func (gl *GoLora) waitForInterrupt(millis time.Duration) error {
-	timeOutChan := make(chan bool)
-	go timer(millis, timeOutChan)
+func (gl *GoLora) waitForInterrupt(timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
 	for {
-		select {
-		case isTimeOut := <-timeOutChan:
-			if isTimeOut {
-				return errors.New("timeout reached")
-			}
-		default:
-
-		}
 		ok, err := gl.CbPin.ReadVal()
 		if err != nil {
 			return err
@@ -531,16 +514,20 @@ func (gl *GoLora) waitForInterrupt(millis time.Duration) error {
 		if ok {
 			return nil
 		}
+		if time.Now().After(deadline) {
+			return errors.New("timeout reached")
+		}
+		time.Sleep(time.Millisecond)
 	}
 }
 
 func (gl *GoLora) waitForPacket(millis time.Duration) error {
 
-	if err := gl.ChangeMode(internal.Idle); err != nil {
+	if err := gl.ChangeMode(Idle); err != nil {
 		return err
 	}
 	gl.mu.Lock()
-	if err := gl.writeReg(internal.REG_IRQ_FLAGS, 0x9f); err != nil {
+	if err := gl.writeReg(internal.REG_IRQ_FLAGS, 0xff); err != nil {
 		return err
 	}
 	if err := gl.writeReg(internal.REG_DIO_MAPPING_1, 0x00); err != nil {
@@ -548,7 +535,7 @@ func (gl *GoLora) waitForPacket(millis time.Duration) error {
 	}
 	gl.mu.Unlock()
 
-	if err := gl.ChangeMode(internal.RxContinuous); err != nil {
+	if err := gl.ChangeMode(RxContinuous); err != nil {
 		return err
 	}
 	if err := gl.waitForInterrupt(millis); err != nil {
@@ -559,7 +546,7 @@ func (gl *GoLora) waitForPacket(millis time.Duration) error {
 
 func (gl *GoLora) rxDoneWrapper() func() bool {
 	return func() bool {
-		err := gl.waitForPacket(1)
+		err := gl.waitForPacket(500 * time.Millisecond)
 		if err != nil {
 			return false
 		}
@@ -644,7 +631,7 @@ func (gl *GoLora) Destroy() error {
 			gl.cbStopper = nil
 		}
 	}()
-	if err := gl.ChangeMode(internal.Sleep); err != nil {
+	if err := gl.ChangeMode(Sleep); err != nil {
 		return err
 	}
 	if err := gl.Reset(); err != nil {

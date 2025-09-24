@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Fsyahputra/GoLora/Lora/SX1276/internal"
 	"github.com/Fsyahputra/GoLora/driver"
 	"github.com/stretchr/testify/assert"
 	"periph.io/x/conn/v3/physic"
@@ -787,7 +786,7 @@ func TestGoLora_ChangeMode(t *testing.T) {
 	for idx, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			gl := NewGoLoraSX1276(driverList[idx], newDefLoraConf())
-			err := gl.ChangeMode(internal.Sleep)
+			err := gl.ChangeMode(Sleep)
 			if err != nil {
 				assert.Error(t, err)
 				return
@@ -798,27 +797,27 @@ func TestGoLora_ChangeMode(t *testing.T) {
 
 	tests2 := []struct {
 		name string
-		mode internal.LoraMode
+		mode LoraMode
 	}{
 		{
-			name: "it Should Overwrite the ChangeMode to Tx",
-			mode: internal.Tx,
+			name: "it Should Overwrite the changeMode to Tx",
+			mode: Tx,
 		}, {
-			name: "it Should Overwrite the ChangeMode to RxSingle",
-			mode: internal.RxSingle,
+			name: "it Should Overwrite the changeMode to RxSingle",
+			mode: RxSingle,
 		},
 		{
-			name: "it Should Overwrite the ChangeMode to RxContinuous",
-			mode: internal.RxContinuous,
+			name: "it Should Overwrite the changeMode to RxContinuous",
+			mode: RxContinuous,
 		},
 		{
-			name: "it Should Overwrite the ChangeMode to idle",
-			mode: internal.Idle,
+			name: "it Should Overwrite the changeMode to idle",
+			mode: Idle,
 		},
 
 		{
-			name: "it Should Overwrite the ChangeMode to Sleep",
-			mode: internal.Sleep,
+			name: "it Should Overwrite the changeMode to Sleep",
+			mode: Sleep,
 		},
 	}
 

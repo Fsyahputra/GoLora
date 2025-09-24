@@ -2,82 +2,150 @@ package main
 
 import (
 	"fmt"
+	"log"
+	"sync"
 	"time"
 
-	"periph.io/x/conn/v3/gpio"
-	"periph.io/x/conn/v3/gpio/gpioreg"
-	"periph.io/x/conn/v3/physic"
+	"github.com/Fsyahputra/GoLora/Lora/SX1276"
+	"github.com/Fsyahputra/GoLora/driver"
+	"github.com/Fsyahputra/GoLora/driver/periphIO"
 	"periph.io/x/host/v3"
 )
 
-type SoftPwm struct {
-	Pin       gpio.PinIO
-	DutyCycle int
-	Frequency physic.Frequency
-	dhch      chan int
+func getSpiConf(mod int) (*periphIO.SpiConf, string, string) {
+	defConf := periphIO.NewDefaultConf()
+	if mod == 0 {
+		return defConf, "GPIO36", "GPIO133"
+	} else if mod == 1 {
+		defConf.Reg = "/dev/spidev4.0"
+		return defConf, "GPIO38", "GPIO134"
+	}
+	return defConf, "", ""
 }
 
-func (p *SoftPwm) Start() chan struct{} {
-	p.dhch = make(chan int)
-	stpCh := make(chan struct{})
-	period := time.Second / time.Duration(p.Frequency)
-	go func() {
-		for {
-			select {
-			case dc := <-p.dhch:
-				p.DutyCycle = dc
-			case <-stpCh:
-				break
-			default:
+func NewMinimalLoraConf() *SX1276.LoraConf {
+	return &SX1276.LoraConf{
+		TxPower:        14,        // dayanya cukup standar, 14 dBm
+		SF:             7,         // Spreading Factor minimal untuk komunikasi standar
+		BW:             125000,    // Bandwidth 125 kHz (default LoRa)
+		Denum:          1,         // Coding rate 4/5 (1 = 4/5)
+		PreambleLength: 8,         // minimal preamble
+		SyncWord:       0x34,      // sync word standar LoRaWAN
+		Frequency:      868000000, // Frekuensi default 868 MHz (ubah sesuai region)
+		Header:         true,      // explicit header
+		EnableCrc:      true,      // CRC aktif
+	}
+}
 
-			}
-			highDuration := time.Duration(float64(period) * (float64(p.DutyCycle) / 100.0))
-			lowDuration := period - highDuration
-			p.Pin.Out(gpio.High)
-			time.Sleep(highDuration)
-			p.Pin.Out(gpio.Low)
-			time.Sleep(lowDuration)
+func Mod1Daemon(drv *driver.Driver, wg *sync.WaitGroup) {
+	defer wg.Done()
+	gl := SX1276.NewGoLoraSX1276(drv, *NewMinimalLoraConf())
+	err := gl.Begin()
+	if err != nil {
+		log.Fatal(err)
+		return
+	}
+	err = gl.CheckConn()
+	if err != nil {
+		log.Fatal(err)
+		return
+	}
+	registers, err := gl.DumpRegisters()
+	if err != nil {
+		log.Fatal(err)
+		return
+	}
+
+	for addr, val := range registers {
+		log.Printf("gl mod 1 Reg 0x%02X: 0x%02X\n", addr, val)
+	}
+	cb, err := gl.RegisterCb(SX1276.OnRxDone, func() {
+		fmt.Println("Packet received on mod 1")
+		data, err := gl.ReceivePacket()
+		if err != nil {
+			log.Println("Error reading packet:", err)
+			return
 		}
-	}()
-	return stpCh
+		fmt.Printf("Received data on mod 1: %s\n", string(data))
+
+	})
+	if err != nil {
+		return
+	}
+	time.Sleep(3 * time.Minute)
+	close(cb)
+	err = gl.Destroy()
+	if err != nil {
+		return
+	}
+
+}
+
+func Mod0Daemon(drv *driver.Driver, wg *sync.WaitGroup) {
+	defer wg.Done()
+	gl := SX1276.NewGoLoraSX1276(drv, *NewMinimalLoraConf())
+	err := gl.Begin()
+	if err != nil {
+		log.Fatal(err)
+		return
+	}
+	err = gl.CheckConn()
+	if err != nil {
+		log.Fatal(err)
+		return
+	}
+
+	registers, err := gl.DumpRegisters()
+	if err != nil {
+		log.Fatal(err)
+		return
+	}
+
+	for addr, val := range registers {
+		log.Printf("gl mod 0 Reg 0x%02X: 0x%02X\n", addr, val)
+	}
+
+	gl.ChangeMode(SX1276.Tx)
+	gl.SendPacket([]byte("Hello from mod 0asdasdasd"))
+	ticker := time.NewTicker(100 * time.Millisecond)
+	for {
+		select {
+		case <-ticker.C:
+			if err := gl.SendPacket([]byte("Hello from mod 0")); err != nil {
+				log.Fatal(err)
+			}
+			fmt.Println("Packet sent from mod 0")
+		}
+	}
 }
 
 func main() {
+	var wg sync.WaitGroup
 	_, err := host.Init()
 	if err != nil {
 		panic(err)
 	}
-	p := gpioreg.ByName("GPIO134")
-	if p == nil {
-		panic("Failed to find GPIO134")
-	}
-	pwm := &SoftPwm{
-		Pin:       p,
-		DutyCycle: 0,
-		Frequency: 200 * physic.Hertz,
-	}
-	i := 0
-	_ = pwm.Start()
-	isHigh := false
-	for {
-		if i >= 100 {
-			isHigh = true
-		}
+	spiConf0, rst0, cb0 := getSpiConf(0)
+	spiConf1, rst1, cb1 := getSpiConf(1)
 
-		if i <= 0 {
-			isHigh = false
-		}
-
-		if isHigh {
-			i -= 1
-		}
-
-		if !isHigh {
-			i += 1
-		}
-		pwm.dhch <- i
-		time.Sleep(50 * time.Millisecond)
-		fmt.Println(i)
+	drv0, err := periphIO.NewDriver(cb0, rst0, spiConf0)
+	if err != nil {
+		panic(err)
 	}
-	//close(stopCh)
+	drv1, err := periphIO.NewDriver(cb1, rst1, spiConf1)
+	if err != nil {
+		panic(err)
+	}
+	hwDrv0, err := drv0.Init()
+	if err != nil {
+		panic(err)
+	}
+	hwDrv1, err := drv1.Init()
+	if err != nil {
+		panic(err)
+	}
+	wg.Add(2)
+	go Mod0Daemon(hwDrv0, &wg)
+	go Mod1Daemon(hwDrv1, &wg)
+	wg.Wait()
 }
