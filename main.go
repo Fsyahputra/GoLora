@@ -9,14 +9,19 @@ import (
 	"github.com/Fsyahputra/GoLora/Lora/SX1276"
 	"github.com/Fsyahputra/GoLora/driver"
 	"github.com/Fsyahputra/GoLora/driver/periphIO"
+	"periph.io/x/conn/v3/physic"
 	"periph.io/x/host/v3"
 )
 
 func getSpiConf(mod int) (*periphIO.SpiConf, string, string) {
 	defConf := periphIO.NewDefaultConf()
 	if mod == 0 {
+		defConf.Freq = 10 * physic.MegaHertz
 		return defConf, "GPIO36", "GPIO133"
+
 	} else if mod == 1 {
+		defConf.Freq = 10 * physic.MegaHertz
+
 		defConf.Reg = "/dev/spidev4.0"
 		return defConf, "GPIO38", "GPIO134"
 	}
@@ -59,25 +64,45 @@ func Mod1Daemon(drv *driver.Driver, wg *sync.WaitGroup) {
 	for addr, val := range registers {
 		log.Printf("gl mod 1 Reg 0x%02X: 0x%02X\n", addr, val)
 	}
-	cb, err := gl.RegisterCb(SX1276.OnRxDone, func() {
-		fmt.Println("Packet received on mod 1")
+	//_, err = gl.RegisterCb(SX1276.OnRxDone, func() {
+	//	fmt.Println("Packet received on mod 1")
+	//	data, err := gl.ReceivePacket()
+	//	if err != nil {
+	//		log.Println("Error reading packet:", err)
+	//		return
+	//	}
+	//	fmt.Printf("Received data on mod 1: %s\n", string(data))
+	//
+	//})
+	for {
+		gl.ChangeMode(SX1276.RxContinuous)
+		time.Sleep(1 * time.Second)
 		data, err := gl.ReceivePacket()
 		if err != nil {
 			log.Println("Error reading packet:", err)
 			return
 		}
 		fmt.Printf("Received data on mod 1: %s\n", string(data))
+		if err != nil {
+			log.Fatal(err)
+			return
+		}
+		//gl.Begin()
+		gl.ChangeMode(SX1276.RxContinuous)
+		time.Sleep(1 * time.Second)
+		data, err = gl.ReceivePacket()
+		if err != nil {
+			log.Println("Error reading packet:", err)
+			return
+		}
+		fmt.Printf("Received data on mod 1: %s\n", string(data))
+		if err != nil {
+			log.Fatal(err)
+			return
+		}
+	}
 
-	})
-	if err != nil {
-		return
-	}
-	time.Sleep(3 * time.Minute)
-	close(cb)
-	err = gl.Destroy()
-	if err != nil {
-		return
-	}
+	return
 
 }
 
@@ -106,17 +131,30 @@ func Mod0Daemon(drv *driver.Driver, wg *sync.WaitGroup) {
 	}
 
 	gl.ChangeMode(SX1276.Tx)
-	gl.SendPacket([]byte("Hello from mod 0asdasdasd"))
+	//gl.SendPacket([]byte("Hello from mod 0asdasdasd"))
+
 	ticker := time.NewTicker(100 * time.Millisecond)
+	timeout := time.After(100 * time.Second) // cukup sekali di-declare
+
+	i := 1
 	for {
 		select {
 		case <-ticker.C:
-			if err := gl.SendPacket([]byte("Hello from mod 0")); err != nil {
+			if err := gl.SendPacket([]byte(fmt.Sprintf("hello from mod 0 n packet %d", i))); err != nil {
 				log.Fatal(err)
 			}
-			fmt.Println("Packet sent from mod 0")
+			i++
+		case <-timeout:
+			//ticker.Stop()
+			//if err := gl.Destroy(); err != nil {
+			//	log.Fatal(err)
+			//}
+			return
 		}
 	}
+	time.Sleep(3 * time.Second)
+	//gl.SendPacket([]byte("Goodbye from mod 0"))
+
 }
 
 func main() {
@@ -148,4 +186,5 @@ func main() {
 	go Mod0Daemon(hwDrv0, &wg)
 	go Mod1Daemon(hwDrv1, &wg)
 	wg.Wait()
+	fmt.Println("All done")
 }
