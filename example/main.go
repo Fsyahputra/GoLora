@@ -9,14 +9,17 @@ import (
 	"github.com/Fsyahputra/GoLora/Lora/SX1276"
 	"github.com/Fsyahputra/GoLora/driver"
 	"github.com/Fsyahputra/GoLora/driver/periphIO"
+	"periph.io/x/conn/v3/physic"
 	"periph.io/x/host/v3"
 )
 
 func getSpiConf(mod int) (*periphIO.SpiConf, string, string) {
 	defConf := periphIO.NewDefaultConf()
-	if mod == 0 {
+	if mod == 1 {
+		defConf.Freq = 10 * physic.MegaHertz
 		return defConf, "GPIO36", "GPIO133"
-	} else if mod == 1 {
+	} else if mod == 0 {
+		defConf.Freq = 10 * physic.MegaHertz
 		defConf.Reg = "/dev/spidev4.0"
 		return defConf, "GPIO38", "GPIO134"
 	}
@@ -72,7 +75,7 @@ func Mod1Daemon(drv *driver.Driver, wg *sync.WaitGroup) {
 	if err != nil {
 		return
 	}
-	time.Sleep(3 * time.Minute)
+	time.Sleep(360 * time.Minute)
 	close(cb)
 	err = gl.Destroy()
 	if err != nil {
@@ -83,39 +86,47 @@ func Mod1Daemon(drv *driver.Driver, wg *sync.WaitGroup) {
 
 func Mod0Daemon(drv *driver.Driver, wg *sync.WaitGroup) {
 	defer wg.Done()
-	gl := SX1276.NewGoLoraSX1276(drv, *NewMinimalLoraConf())
-	err := gl.Begin()
+	gl0 := SX1276.NewGoLoraSX1276(drv, *NewMinimalLoraConf())
+	err := gl0.Begin()
 	if err != nil {
 		log.Fatal(err)
 		return
 	}
-	err = gl.CheckConn()
+	err = gl0.CheckConn()
 	if err != nil {
 		log.Fatal(err)
 		return
 	}
 
-	registers, err := gl.DumpRegisters()
+	registers, err := gl0.DumpRegisters()
 	if err != nil {
 		log.Fatal(err)
 		return
 	}
 
 	for addr, val := range registers {
-		log.Printf("gl mod 0 Reg 0x%02X: 0x%02X\n", addr, val)
+		log.Printf("gl0 mod 0 Reg 0x%02X: 0x%02X\n", addr, val)
 	}
+	fmt.Println("Switching to TX mode on mod 0")
+	//gl0.ChangeMode(SX1276.Tx)
+	gl0.SendPacket([]byte("Hello from mod 0"))
+	////time.Sleep(1000 * time.Millisecond)
+	//gl0.Begin()
+	fmt.Println("Switching to RX mode on mod 1")
+	//time.Sleep(1000 * time.Millisecond)
+	//gl0.ChangeMode(SX1276.Tx)
 
-	gl.ChangeMode(SX1276.Tx)
-	gl.SendPacket([]byte("Hello from mod 0asdasdasd"))
-	ticker := time.NewTicker(100 * time.Millisecond)
+	gl0.SendPacket([]byte("Hello from mod 1"))
+	ticker := time.NewTicker(1 * time.Millisecond)
+	i := 1
 	for {
 		select {
 		case <-ticker.C:
-			if err := gl.SendPacket([]byte("Hello from mod 0")); err != nil {
+			if err := gl0.SendPacket([]byte(fmt.Sprintf("Hello from mod 1 packet %d", i))); err != nil {
 				log.Fatal(err)
 			}
-			fmt.Println("Packet sent from mod 0")
 		}
+		i++
 	}
 }
 

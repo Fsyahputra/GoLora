@@ -352,15 +352,19 @@ func (gl *GoLora) sendToFifo(buff []byte) error {
 }
 
 func (gl *GoLora) waitTxDone() error {
-	gl.mu.Lock()
-	readVal, err := gl.readReg(internal.REG_IRQ_FLAGS)
-	gl.mu.Unlock()
-	if err != nil {
-		return err
-	}
+	for {
+		gl.mu.Lock()
+		readVal, err := gl.readReg(internal.REG_IRQ_FLAGS)
+		gl.mu.Unlock()
+		if err != nil {
+			return err
+		}
 
-	for readVal&internal.IRQ_TX_DONE_MASK == 0 {
-		time.Sleep(100 * time.Millisecond)
+		if readVal&internal.IRQ_TX_DONE_MASK != 0 {
+			break
+		}
+
+		time.Sleep(1 * time.Millisecond)
 	}
 	gl.mu.Lock()
 	if err := gl.writeReg(internal.REG_IRQ_FLAGS, internal.IRQ_TX_DONE_MASK); err != nil {
