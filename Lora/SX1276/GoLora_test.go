@@ -867,7 +867,7 @@ func TestGoLora_IsReceived(t *testing.T) {
 	}{
 		{
 			name:    "it Should return the actual value if no err",
-			mockDrv: isRecvMockDrv(0b00001000, nil),
+			mockDrv: isRecvMockDrv(0x40, nil),
 			val:     true,
 		},
 		{
