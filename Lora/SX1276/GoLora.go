@@ -572,7 +572,7 @@ func (gl *GoLora) waitForPacket(millis time.Duration) error {
 	if err := gl.changeModeUnsafe(Idle); err != nil {
 		return err
 	}
-	if err := gl.writeReg(internal.REG_IRQ_FLAGS, 0xff); err != nil {
+	if err := gl.writeReg(internal.REG_IRQ_FLAGS, 0x40); err != nil {
 		return err
 	}
 	if err := gl.writeReg(internal.REG_DIO_MAPPING_1, 0x00); err != nil {
@@ -589,7 +589,36 @@ func (gl *GoLora) waitForPacket(millis time.Duration) error {
 	return nil
 }
 
+func (gl *GoLora) waitForTxDone(millis time.Duration) error {
+	gl.mu.Lock()
+	if err := gl.changeModeUnsafe(Idle); err != nil {
+		return err
+	}
+	if err := gl.writeReg(internal.REG_IRQ_FLAGS, 0x08); err != nil {
+	}
+	if err := gl.writeReg(internal.REG_DIO_MAPPING_1, 0x01); err != nil {
+	}
+	if err := gl.changeModeUnsafe(Tx); err != nil {
+		return err
+	}
+	if err := gl.waitForInterrupt(millis); err != nil {
+		return err
+	}
+	gl.mu.Unlock()
+	return nil
+}
+
 func (gl *GoLora) rxDoneWrapper() func() bool {
+	return func() bool {
+		err := gl.waitForPacket(500 * time.Millisecond)
+		if err != nil {
+			return false
+		}
+		return true
+	}
+}
+
+func (gl *GoLora) txDoneWrapper() func() bool {
 	return func() bool {
 		err := gl.waitForPacket(500 * time.Millisecond)
 		if err != nil {
@@ -605,7 +634,7 @@ func (gl *GoLora) eventChecker(event Event) (func() bool, error) {
 	if event == OnRxDone {
 		checkerFunc = gl.rxDoneWrapper()
 	} else if event == OnTxDone {
-		err = errors.New("OnTxDone Not Implemented Yet")
+		checkerFunc = gl.txDoneWrapper()
 	} else {
 		err = errors.New("event not recognized")
 	}
