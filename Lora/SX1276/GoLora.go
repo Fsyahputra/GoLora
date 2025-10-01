@@ -462,7 +462,7 @@ func (gl *GoLora) SendPacketWithTxCb(buff []byte) error {
 		return err
 	}
 
-	timeout := 50 * time.Millisecond
+	timeout := 300 * time.Millisecond
 	timer := time.After(timeout)
 	for {
 		select {

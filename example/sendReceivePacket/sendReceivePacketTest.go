@@ -15,10 +15,10 @@ import (
 
 func getSpiConf(mod int) (*periphIO.SpiConf, string, string) {
 	defConf := periphIO.NewDefaultConf()
-	if mod == 1 {
+	if mod == 0 {
 		defConf.Freq = 10 * physic.MegaHertz
 		return defConf, "GPIO36", "GPIO133"
-	} else if mod == 0 {
+	} else if mod == 1 {
 		defConf.Freq = 10 * physic.MegaHertz
 		defConf.Reg = "/dev/spidev4.0"
 		return defConf, "GPIO38", "GPIO134"
@@ -107,15 +107,16 @@ func Mod0Daemon(drv *driver.Driver, wg *sync.WaitGroup) {
 	for addr, val := range registers {
 		log.Printf("gl0 mod 0 Reg 0x%02X: 0x%02X\n", addr, val)
 	}
-	fmt.Println("Switching to TX mode on mod 0")
-	gl0.SendPacket([]byte("Hello from mod 0"))
-	fmt.Println("Switching to RX mode on mod 1")
-	gl0.SendPacket([]byte("Hello from mod 1"))
-	ticker := time.NewTicker(1 * time.Millisecond)
+	//fmt.Println("Switching to TX mode on mod 0")
+	//gl0.SendPacket([]byte("Hello from mod 0"))
+	//fmt.Println("Switching to RX mode on mod 1")
+	//gl0.SendPacket([]byte("Hello from mod 1"))
+	ticker := time.NewTicker(100 * time.Millisecond)
 	i := 1
 	for {
 		select {
 		case <-ticker.C:
+			fmt.Println("hello")
 			if err := gl0.SendPacket([]byte(fmt.Sprintf("Hello from mod 1 packet %d", i))); err != nil {
 				log.Fatal(err)
 			}
