@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Fsyahputra/GoLora/Lora/SX1276/internal"
@@ -26,11 +27,13 @@ type LoraConf struct {
 type GoLora struct {
 	*driver.Driver
 	*LoraUtils
-	Conf      LoraConf
-	mu        sync.Mutex
-	cb        func()
-	cbStopper chan struct{}
-	Mode      LoraMode
+	Conf         LoraConf
+	mu           sync.Mutex
+	cb           func()
+	txDoneAtomic atomic.Int32
+	cbStopper    chan struct{}
+	Mode         LoraMode
+	txDoneFlag   int32
 }
 
 type RegVal struct {
@@ -54,12 +57,14 @@ func (gl *GoLora) configure() error {
 
 func NewGoLoraSX1276(drv *driver.Driver, conf LoraConf) *GoLora {
 	gl := &GoLora{
-		Driver:    drv,
-		LoraUtils: &LoraUtils{},
-		Conf:      conf,
-		mu:        sync.Mutex{},
-		cb:        nil,
-		cbStopper: nil,
+		Driver:       drv,
+		LoraUtils:    &LoraUtils{},
+		Conf:         conf,
+		mu:           sync.Mutex{},
+		cb:           nil,
+		txDoneAtomic: atomic.Int32{},
+		cbStopper:    nil,
+		Mode:         0,
 	}
 
 	return gl
@@ -418,6 +423,18 @@ func (gl *GoLora) waitTxDone() error {
 func (gl *GoLora) SendPacket(buff []byte) error {
 	gl.mu.Lock()
 	defer gl.mu.Unlock()
+	err := gl.sendPacketUnsafe(buff)
+	if err != nil {
+		return err
+	}
+	if err := gl.waitTxDone(); err != nil {
+		return err
+	}
+	return nil
+
+}
+
+func (gl *GoLora) sendPacketUnsafe(buff []byte) error {
 	if err := gl.changeModeUnsafe(Idle); err != nil {
 		return err
 	}
@@ -434,12 +451,32 @@ func (gl *GoLora) SendPacket(buff []byte) error {
 	if err := gl.changeModeUnsafe(Tx); err != nil {
 		return err
 	}
-	if err := gl.waitTxDone(); err != nil {
-		return err
-	}
 	return nil
 }
 
+func (gl *GoLora) SendPacketWithTxCb(buff []byte) error {
+	gl.mu.Lock()
+	err := gl.sendPacketUnsafe(buff)
+	gl.mu.Unlock()
+	if err != nil {
+		return err
+	}
+
+	timeout := 50 * time.Millisecond
+	timer := time.After(timeout)
+	for {
+		select {
+		case <-timer:
+			return errors.New("timeout reached")
+		default:
+			if gl.txDoneAtomic.Load() == 1 {
+				gl.txDoneAtomic.Store(0)
+				return nil
+			}
+			time.Sleep(1 * time.Millisecond)
+		}
+	}
+}
 func (gl *GoLora) setHeaderUnsafe(header Header) error {
 	currentConf, err := gl.readReg(internal.REG_MODEM_CONFIG_1)
 	if err != nil {
@@ -552,6 +589,7 @@ func (gl *GoLora) IsReceived() (bool, error) {
 
 func (gl *GoLora) waitForInterrupt(timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
+
 	for {
 		ok, err := gl.CbPin.ReadVal()
 		if err != nil {
@@ -578,6 +616,7 @@ func (gl *GoLora) waitForPacket(millis time.Duration) error {
 	if err := gl.writeReg(internal.REG_DIO_MAPPING_1, 0x00); err != nil {
 		return err
 	}
+
 	if err := gl.changeModeUnsafe(RxContinuous); err != nil {
 		return err
 	}
@@ -594,15 +633,16 @@ func (gl *GoLora) waitForTxDone(millis time.Duration) error {
 	if err := gl.changeModeUnsafe(Idle); err != nil {
 		return err
 	}
-	if err := gl.writeReg(internal.REG_IRQ_FLAGS, 0x08); err != nil {
+
+	if err := gl.writeReg(internal.REG_DIO_MAPPING_1, 0x40); err != nil {
 	}
-	if err := gl.writeReg(internal.REG_DIO_MAPPING_1, 0x01); err != nil {
-	}
-	if err := gl.changeModeUnsafe(Tx); err != nil {
-		return err
-	}
+	gl.mu.Unlock()
+
 	if err := gl.waitForInterrupt(millis); err != nil {
 		return err
+	}
+	gl.mu.Lock()
+	if err := gl.writeReg(internal.REG_IRQ_FLAGS, 0x08); err != nil {
 	}
 	gl.mu.Unlock()
 	return nil
@@ -619,8 +659,9 @@ func (gl *GoLora) rxDoneWrapper() func() bool {
 }
 
 func (gl *GoLora) txDoneWrapper() func() bool {
+
 	return func() bool {
-		err := gl.waitForPacket(500 * time.Millisecond)
+		err := gl.waitForTxDone(500 * time.Millisecond)
 		if err != nil {
 			return false
 		}
@@ -657,6 +698,7 @@ func (gl *GoLora) cbDaemon(eventChecker func() bool, ch chan struct{}) {
 		case <-t.C:
 			isHappen := eventChecker()
 			if isHappen {
+				gl.txDoneAtomic.Store(1)
 				gl.runCb()
 			} else {
 				continue
@@ -667,6 +709,8 @@ func (gl *GoLora) cbDaemon(eventChecker func() bool, ch chan struct{}) {
 
 func (gl *GoLora) RegisterCb(event Event, cb func()) (chan struct{}, error) {
 	thStopper := make(chan struct{})
+	gl.mu.Lock()
+	gl.mu.Unlock()
 	checkerFunc, err := gl.eventChecker(event)
 	if err != nil {
 		return nil, err

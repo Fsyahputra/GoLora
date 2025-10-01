@@ -28,15 +28,15 @@ func getSpiConf(mod int) (*periphIO.SpiConf, string, string) {
 
 func NewMinimalLoraConf() *SX1276.LoraConf {
 	return &SX1276.LoraConf{
-		TxPower:        14,        // dayanya cukup standar, 14 dBm
-		SF:             7,         // Spreading Factor minimal untuk komunikasi standar
-		BW:             125000,    // Bandwidth 125 kHz (default LoRa)
-		Denum:          1,         // Coding rate 4/5 (1 = 4/5)
-		PreambleLength: 8,         // minimal preamble
-		SyncWord:       0x34,      // sync word standar LoRaWAN
-		Frequency:      868000000, // Frekuensi default 868 MHz (ubah sesuai region)
-		Header:         true,      // explicit header
-		EnableCrc:      true,      // CRC aktif
+		TxPower:        14,
+		SF:             7,
+		BW:             125000,
+		Denum:          1,
+		PreambleLength: 8,
+		SyncWord:       0x34,
+		Frequency:      868000000,
+		Header:         true,
+		EnableCrc:      true,
 	}
 }
 
@@ -108,14 +108,8 @@ func Mod0Daemon(drv *driver.Driver, wg *sync.WaitGroup) {
 		log.Printf("gl0 mod 0 Reg 0x%02X: 0x%02X\n", addr, val)
 	}
 	fmt.Println("Switching to TX mode on mod 0")
-	//gl0.ChangeMode(SX1276.Tx)
 	gl0.SendPacket([]byte("Hello from mod 0"))
-	////time.Sleep(1000 * time.Millisecond)
-	//gl0.Begin()
 	fmt.Println("Switching to RX mode on mod 1")
-	//time.Sleep(1000 * time.Millisecond)
-	//gl0.ChangeMode(SX1276.Tx)
-
 	gl0.SendPacket([]byte("Hello from mod 1"))
 	ticker := time.NewTicker(1 * time.Millisecond)
 	i := 1

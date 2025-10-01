@@ -1113,13 +1113,13 @@ func TestGoLora_GetConf(t *testing.T) {
 	})
 }
 
-func TestGoLora_RegisterCb_CalledCallback(t *testing.T) {
+func simulateReadingFromCb(event bool, eventType Event) (chan bool, chan struct{}) {
 	gl := NewGoLoraSX1276(&driver.Driver{
 		RSTPin: nil,
 		CbPin: &mockCbPin{
 			readValFunc: func() (bool, error) {
-				return true, nil
-			},
+				return event, nil
+			}, // Return True To Simulate Event Happening
 		},
 		ModComm: &mockModConn{
 			send: func(reg, val byte) error {
@@ -1133,11 +1133,14 @@ func TestGoLora_RegisterCb_CalledCallback(t *testing.T) {
 
 	ch := make(chan bool, 1)
 
-	stopper, err := gl.RegisterCb(OnRxDone, func() {
+	stopper, _ := gl.RegisterCb(eventType, func() {
 		ch <- true
 	})
-	assert.NoError(t, err)
+	return ch, stopper
+}
 
+func TestGoLora_RegisterCb_CalledCallback(t *testing.T) {
+	ch, stopper := simulateReadingFromCb(true, OnRxDone)
 	select {
 	case val := <-ch:
 		assert.Equal(t, true, val)
@@ -1150,37 +1153,36 @@ func TestGoLora_RegisterCb_CalledCallback(t *testing.T) {
 }
 
 func TestGoLora_RegisterCb_NotCalledCallback(t *testing.T) {
-	gl := NewGoLoraSX1276(&driver.Driver{
-		RSTPin: nil,
-		CbPin: &mockCbPin{
-			readValFunc: func() (bool, error) {
-				return false, nil
-			},
-		},
-		ModComm: &mockModConn{
-			send: func(reg, val byte) error {
-				return nil
-			},
-			read: func(reg byte) (byte, error) {
-				return 0xff, nil
-			},
-		},
-	}, newDefLoraConf())
-
-	ch := make(chan bool, 1)
-
-	stopper, err := gl.RegisterCb(OnRxDone, func() {
-		ch <- true
-	})
-	assert.NoError(t, err)
-
+	ch, stopper := simulateReadingFromCb(false, OnRxDone)
 	select {
 	case val := <-ch:
 		t.Errorf("callback should not have been called, but got %v", val)
 	case <-time.After(100 * time.Millisecond):
-		// ✅ expected path: no callback
+	}
+	close(stopper)
+	close(ch)
+}
+
+func TestGoLora_RegisterCb_OnTxDone_CalledCallback(t *testing.T) {
+	ch, stopper := simulateReadingFromCb(true, OnTxDone)
+	select {
+	case val := <-ch:
+		assert.Equal(t, true, val)
+	case <-time.After(100 * time.Millisecond):
+		t.Error("callback was not called")
 	}
 
+	close(stopper)
+	close(ch)
+}
+
+func TestGoLora_RegisterCb_OnTxDone_NotCalledCallback(t *testing.T) {
+	ch, stopper := simulateReadingFromCb(false, OnTxDone)
+	select {
+	case val := <-ch:
+		t.Errorf("callback should not have been called, but got %v", val)
+	case <-time.After(100 * time.Millisecond):
+	}
 	close(stopper)
 	close(ch)
 }
@@ -1198,15 +1200,6 @@ func TestGoLora_RegisterCb_UnknownEvent(t *testing.T) {
 	gl := NewGoLoraSX1276(testsDrvMock(nil, nil)(), newDefLoraConf())
 	stopper, err := gl.RegisterCb(99, func() {})
 	assert.EqualError(t, err, "event not recognized")
-	if stopper != nil {
-		stopper <- struct{}{}
-	}
-}
-
-func TestGoLora_RegisterCb_NotImplemented(t *testing.T) {
-	gl := NewGoLoraSX1276(testsDrvMock(nil, nil)(), newDefLoraConf())
-	stopper, err := gl.RegisterCb(OnTxDone, func() {})
-	assert.EqualError(t, err, "OnTxDone Not Implemented Yet")
 	if stopper != nil {
 		stopper <- struct{}{}
 	}
