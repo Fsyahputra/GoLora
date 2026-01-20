@@ -507,6 +507,7 @@ func (gl *GoLora) ReceivePacket() ([]byte, error) {
 		return nil, err
 	}
 	if err := gl.LoraUtils.checkData(irq); err != nil {
+		_ = gl.writeReg(internal.REG_IRQ_FLAGS, internal.IRQ_PAYLOAD_CRC_ERROR_MASK) // reset bit crc payload error
 		return nil, err
 	}
 
@@ -759,11 +760,12 @@ func (gl *GoLora) Destroy() error {
 }
 
 func (gl *GoLora) DumpRegisters() ([]RegVal, error) {
-	registers := make([]byte, 0x26)
+	regRange := 0x43
+	registers := make([]byte, regRange)
 	regVal := make([]RegVal, len(registers))
 	values := make([]byte, len(registers))
 	var err error
-	for i := 0; i < 0x26; i++ {
+	for i := 0; i < regRange; i++ {
 		registers[i] = byte(i)
 	}
 	gl.mu.Lock()

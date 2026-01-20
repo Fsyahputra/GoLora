@@ -41,17 +41,14 @@ func (lu *LoraUtils) setHeader(header bool, currentModemConfig byte) byte {
 }
 
 func (lu *LoraUtils) checkData(irq byte) error {
-	var err error = nil
 	if irq&internal.IRQ_RX_DONE_MASK == 0 {
-		err = errors.New("no Packet Received")
+		return errors.New("no Packet Received")
 	}
 
 	if irq&internal.IRQ_PAYLOAD_CRC_ERROR_MASK != 0 {
-		err = errors.New("packet damaged or lost in transmit")
+		return errors.New("packet damaged or lost in transmit")
 	}
-
-	return err
-
+	return nil
 }
 
 func (lu *LoraUtils) setPreamble(length uint16) []byte {
