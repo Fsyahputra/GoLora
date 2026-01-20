@@ -168,7 +168,7 @@ func (gl *GoLora) setTxPowerUnsafe(txPower uint8) error {
 	}
 
 	chipTx := tx - 2
-	txReg := gl.LoraUtils.setTxPower(byte(chipTx))
+	txReg := gl.LoraUtils.setTxPower(chipTx)
 	if err := gl.writeReg(internal.REG_PA_CONFIG, txReg); err != nil {
 		return err
 	}
