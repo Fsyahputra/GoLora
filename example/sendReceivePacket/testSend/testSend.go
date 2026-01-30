@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
@@ -20,6 +21,7 @@ func main() {
 	if len(os.Args) < 2 {
 		log.Fatal("Usage: program <payload>")
 	}
+	ctx := context.Background()
 
 	payload := []byte(os.Args[1])
 
@@ -47,7 +49,7 @@ func main() {
 
 	// Kirim payload sekali
 	fmt.Printf("Sending packet: %s\n", payload)
-	if err := gl0.SendPacket(payload); err != nil {
+	if err := gl0.SendPacket(ctx, payload); err != nil {
 		log.Fatal(err)
 	}
 

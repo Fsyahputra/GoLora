@@ -1,6 +1,7 @@
 package SX1276
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math"
@@ -403,16 +404,24 @@ func (gl *GoLora) sendToFifo(buff []byte) error {
 	return nil
 }
 
-func (gl *GoLora) waitTxDone() error {
+func (gl *GoLora) waitTxDone(ctx context.Context) error {
+outerLoop:
 	for {
-		readVal, err := gl.readReg(internal.REG_IRQ_FLAGS)
-		if err != nil {
-			return err
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+
+			readVal, err := gl.readReg(internal.REG_IRQ_FLAGS)
+			if err != nil {
+				return err
+			}
+			if readVal&internal.IRQ_TX_DONE_MASK != 0 {
+
+				break outerLoop
+			}
+			time.Sleep(1 * time.Millisecond)
 		}
-		if readVal&internal.IRQ_TX_DONE_MASK != 0 {
-			break
-		}
-		time.Sleep(1 * time.Millisecond)
 	}
 	if err := gl.writeReg(internal.REG_IRQ_FLAGS, internal.IRQ_TX_DONE_MASK); err != nil {
 		return err
@@ -420,14 +429,14 @@ func (gl *GoLora) waitTxDone() error {
 	return nil
 }
 
-func (gl *GoLora) SendPacket(buff []byte) error {
+func (gl *GoLora) SendPacket(ctx context.Context, buff []byte) error {
 	gl.mu.Lock()
 	defer gl.mu.Unlock()
 	err := gl.sendPacketUnsafe(buff)
 	if err != nil {
 		return err
 	}
-	if err := gl.waitTxDone(); err != nil {
+	if err := gl.waitTxDone(ctx); err != nil {
 		return err
 	}
 	return nil
