@@ -73,7 +73,7 @@ func main() {
 	}
 
 	// keep program running
-	// select {}
+	select {}
 	close(cbHandle)
 	gl.Destroy()
 }
