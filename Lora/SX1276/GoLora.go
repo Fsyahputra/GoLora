@@ -661,7 +661,7 @@ func (gl *GoLora) waitForTxDone(millis time.Duration) error {
 
 func (gl *GoLora) rxDoneWrapper() func() bool {
 	return func() bool {
-		err := gl.waitForPacket(10 * time.Millisecond)
+		err := gl.waitForPacket(300 * time.Millisecond)
 		if err != nil {
 			return false
 		}
@@ -672,7 +672,7 @@ func (gl *GoLora) rxDoneWrapper() func() bool {
 func (gl *GoLora) txDoneWrapper() func() bool {
 
 	return func() bool {
-		err := gl.waitForTxDone(500 * time.Millisecond)
+		err := gl.waitForTxDone(2000 * time.Millisecond)
 		if err != nil {
 			return false
 		}
