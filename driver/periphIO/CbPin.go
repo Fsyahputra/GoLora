@@ -8,7 +8,8 @@ import (
 )
 
 type CbPin struct {
-	Pin gpio.PinIn
+	Pin     gpio.PinIn
+	pinName string
 }
 
 func NewCbPin(pinName string) (*CbPin, error) {
@@ -16,7 +17,7 @@ func NewCbPin(pinName string) (*CbPin, error) {
 	if p == nil {
 		return nil, errors.New("CbPin GPIO does not exist")
 	}
-	pin := &CbPin{Pin: p}
+	pin := &CbPin{Pin: p, pinName: pinName}
 	if err := pin.Init(); err != nil {
 		return nil, err
 	}
@@ -28,6 +29,10 @@ func (cbp *CbPin) Init() error {
 	if err != nil {
 		return err
 	}
+
+	// Apply Orange Pi H3 workaround for input stability
+	applyGPIOInWorkaround(cbp.pinName)
+
 	return nil
 }
 
