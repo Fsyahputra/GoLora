@@ -18,13 +18,13 @@ func getSpiConf() (*periphIO.SpiConf, string, string) {
 
 func NewMinimalLoraConf() *SX1276.LoraConf {
 	return &SX1276.LoraConf{
-		TxPower:        14,
-		SF:             7,
+		TxPower:        20,
+		SF:             12,
 		BW:             125000,
-		Denum:          1,
+		Denum:          8,
 		PreambleLength: 8,
 		SyncWord:       0x34,
-		Frequency:      868000000,
+		Frequency:      915000000,
 		Header:         true,
 		EnableCrc:      true,
 	}
