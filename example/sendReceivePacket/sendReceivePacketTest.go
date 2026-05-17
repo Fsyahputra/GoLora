@@ -57,10 +57,9 @@ func Mod1Daemon(drv *driver.Driver, wg *sync.WaitGroup) {
 	cb, err := gl.RegisterCb(SX1276.OnRxDone, func() {
 		data, err := gl.ReceivePacket()
 		if err != nil {
-			log.Println("Error reading packet:", err)
 			return
 		}
-		fmt.Println("data received from other lora", string(data))
+		fmt.Println("data received from other lora", data)
 	})
 	if err != nil {
 		return
