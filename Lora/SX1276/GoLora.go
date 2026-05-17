@@ -672,7 +672,7 @@ func (gl *GoLora) rxDoneWrapper() func() bool {
 func (gl *GoLora) txDoneWrapper() func() bool {
 
 	return func() bool {
-		err := gl.waitForTxDone(2000 * time.Millisecond)
+		err := gl.waitForTxDone(10000 * time.Millisecond)
 		if err != nil {
 			return false
 		}
