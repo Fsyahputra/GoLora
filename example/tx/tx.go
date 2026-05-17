@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
@@ -15,7 +16,9 @@ import (
 func getSpiConf() (*periphIO.SpiConf, string, string) {
 	defConf := periphIO.NewDefaultConf()
 	defConf.Freq = 1 * physic.MegaHertz // 1 MHz
-	return defConf, "GPIO36", "GPIO133"
+	defConf.CSSoft = true
+	defConf.CSName = "GPIO35"
+	return defConf, "GPIO135", "GPIO134"
 }
 
 func NewMinimalLoraConf() *SX1276.LoraConf {
@@ -64,9 +67,10 @@ func main() {
 
 	gl.ChangeMode(SX1276.Tx)
 
+	ctx := context.Background()
 	switch mode {
 	case "single":
-		if err := gl.SendPacket([]byte("Hello from mod 0")); err != nil {
+		if err := gl.SendPacket(ctx, []byte("Hello from mod 0")); err != nil {
 			log.Fatal(err)
 		}
 		fmt.Println("Packet sent (single mode)")
@@ -75,7 +79,7 @@ func main() {
 		count := 10
 		delayMs := 100
 		for i := 0; i < count; i++ {
-			if err := gl.SendPacket([]byte(fmt.Sprintf("Packet %d from mod 0", i+1))); err != nil {
+			if err := gl.SendPacket(ctx, []byte(fmt.Sprintf("Packet %d from mod 0", i+1))); err != nil {
 				log.Fatal(err)
 			}
 			fmt.Printf("Packet %d sent\n", i+1)
