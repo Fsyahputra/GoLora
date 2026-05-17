@@ -13,18 +13,18 @@ import (
 func getSpiConf() (*periphIO.SpiConf, string, string) {
 	defConf := periphIO.NewDefaultConf()
 	defConf.Freq = 1 * physic.MegaHertz // 1 MHz
-	return defConf, "GPIO38", "GPIO134"
+	return defConf, "GPIO7", "GPIO8"
 }
 
 func NewMinimalLoraConf() *SX1276.LoraConf {
 	return &SX1276.LoraConf{
-		TxPower:        14,
-		SF:             7,
+		TxPower:        20,
+		SF:             12,
 		BW:             125000,
-		Denum:          1,
+		Denum:          8,
 		PreambleLength: 8,
 		SyncWord:       0x34,
-		Frequency:      868000000,
+		Frequency:      915 * physic.MegaHertz,
 		Header:         true,
 		EnableCrc:      true,
 	}
