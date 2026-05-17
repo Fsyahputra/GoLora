@@ -19,7 +19,7 @@ func getSpiConf() (*periphIO.SpiConf, string, string) {
 func NewMinimalLoraConf() *SX1276.LoraConf {
 	return &SX1276.LoraConf{
 		TxPower:        20,
-		SF:             12,
+		SF:             11,
 		BW:             125000,
 		Denum:          8,
 		PreambleLength: 8,
@@ -66,7 +66,7 @@ func main() {
 		if err != nil {
 			return
 		}
-		fmt.Println("data received from other lora", data)
+		fmt.Println("data received from other lora", string( data ))
 	})
 	if err != nil {
 		log.Fatal(err)
