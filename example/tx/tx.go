@@ -15,6 +15,7 @@ import (
 
 func getSpiConf() (*periphIO.SpiConf, string, string) {
 	defConf := periphIO.NewDefaultConf()
+	defConf.Reg = "/dev/spidev4.0"
 	defConf.Freq = 1 * physic.MegaHertz // 1 MHz
 	defConf.CSSoft = true
 	defConf.CSName = "GPIO35"
