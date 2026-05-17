@@ -161,18 +161,39 @@ func (gl *GoLora) setTxPowerUnsafe(txPower uint8) error {
 	if txPower < 2 {
 		fmt.Println("txPower Too Low set default tx=2")
 		tx = 2
-	} else if txPower > 17 {
-		fmt.Println("txPower Too High set to 17")
-		tx = 17
+	} else if txPower > 20 {
+		fmt.Println("txPower Too High set to 20")
+		tx = 20
 	} else {
 		tx = txPower
 	}
 
-	chipTx := tx - 2
-	txReg := gl.LoraUtils.setTxPower(chipTx)
-	if err := gl.writeReg(internal.REG_PA_CONFIG, txReg); err != nil {
-		return err
+	if tx > 17 {
+		if err := gl.writeReg(internal.REG_PA_DAC, 0x87); err != nil {
+			return err
+		}
+		if err := gl.writeReg(internal.REG_OCP, 0x31); err != nil { // 140mA
+			return err
+		}
+		chipTx := tx - 5
+		txReg := gl.LoraUtils.setTxPower(chipTx)
+		if err := gl.writeReg(internal.REG_PA_CONFIG, txReg); err != nil {
+			return err
+		}
+	} else {
+		if err := gl.writeReg(internal.REG_PA_DAC, 0x84); err != nil { // default
+			return err
+		}
+		if err := gl.writeReg(internal.REG_OCP, 0x2b); err != nil { // 100mA default
+			return err
+		}
+		chipTx := tx - 2
+		txReg := gl.LoraUtils.setTxPower(chipTx)
+		if err := gl.writeReg(internal.REG_PA_CONFIG, txReg); err != nil {
+			return err
+		}
 	}
+	
 	gl.Conf.TxPower = tx
 	return nil
 }
@@ -283,14 +304,13 @@ func (gl *GoLora) setBWUnsafe(bw uint64) error {
 		{bwThres: BW_8, value: 8},
 	}
 
+	sbw = 9
+	threshold = 500000
 	for _, bwval := range bwVals {
 		if bw <= uint64(bwval.bwThres) {
 			sbw = bwval.value
 			threshold = uint64(bwval.bwThres)
 			break
-		} else {
-			threshold = uint64(BW_8)
-			sbw = 9
 		}
 	}
 	bwReg := gl.LoraUtils.setBW(sbw)
@@ -731,24 +751,28 @@ func (gl *GoLora) RegisterCb(event Event, cb func()) (chan struct{}, error) {
 	return thStopper, nil // TODO: Change Return Values to object with stop method instead
 }
 
-func (gl *GoLora) GetLastPktRSSI() (uint8, error) {
+func (gl *GoLora) GetLastPktRSSI() (int, error) {
 	gl.mu.Lock()
 	defer gl.mu.Unlock()
 	rssi, err := gl.readReg(internal.REG_PKT_RSSI_VALUE)
 	if err != nil {
 		return 0, err
 	}
-	return rssi, nil
+	var offset int = 157
+	if gl.Conf.Frequency < 868000000 {
+		offset = 164
+	}
+	return int(rssi) - offset, nil
 }
 
-func (gl *GoLora) GetLastPktSNR() (uint8, error) {
+func (gl *GoLora) GetLastPktSNR() (float32, error) {
 	gl.mu.Lock()
 	defer gl.mu.Unlock()
 	snr, err := gl.readReg(internal.REG_PKT_SNR_VALUE)
 	if err != nil {
 		return 0, err
 	}
-	return snr, nil
+	return float32(int8(snr)) * 0.25, nil
 }
 
 func (gl *GoLora) Destroy() error {
@@ -810,15 +834,24 @@ func (gl *GoLora) GetAirtime(payloadLength uint16) time.Duration {
 	} else {
 		H = 0
 	}
+	Ts := math.Pow(2, SF) / float64(BW)
+
 	var DE float64
-	if gl.Conf.SF > 11 {
+	if Ts > 0.01638 {
 		DE = 1
 	} else {
 		DE = 0
 	}
-	Ts := math.Pow(2, SF) / float64(BW)
+
+	var crcVal float64
+	if gl.Conf.EnableCrc {
+		crcVal = 16
+	} else {
+		crcVal = 0
+	}
+
 	Tpreamble := (float64(gl.Conf.PreambleLength) + 4.25) * Ts
-	payloadSymb := 8 + math.Max(math.Ceil((8*PL-4*SF+28+16-20*H)/(4*(SF-2*DE)))*(CR+4), 0)
+	payloadSymb := 8 + math.Max(math.Ceil((8*PL-4*SF+28+crcVal-20*H)/(4*(SF-2*DE)))*(CR+4), 0)
 	Tpayload := payloadSymb * Ts
 	totalTimeSec := Tpreamble + Tpayload
 	return time.Duration(totalTimeSec * float64(time.Second))

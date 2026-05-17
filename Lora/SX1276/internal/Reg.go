@@ -23,6 +23,7 @@ const (
 	REG_FRF_MID              byte = 0x07
 	REG_FRF_LSB              byte = 0x08
 	REG_PA_CONFIG            byte = 0x09
+	REG_OCP                  byte = 0x0b
 	REG_LNA                  byte = 0x0c
 	REG_FIFO_ADDR_PTR        byte = 0x0d
 	REG_FIFO_TX_BASE_ADDR    byte = 0x0e
@@ -45,6 +46,7 @@ const (
 	REG_SYNC_WORD            byte = 0x39
 	REG_DIO_MAPPING_1        byte = 0x40
 	REG_VERSION              byte = 0x42
+	REG_PA_DAC               byte = 0x4d
 )
 
 // ============================
