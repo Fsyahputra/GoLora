@@ -606,10 +606,10 @@ func (gl *GoLora) waitForInterrupt(timeout time.Duration) error {
 			return err
 		}
 		if ok {
+			fmt.Println("Interrupt Detected")
 			return nil
 		}
 		if time.Now().After(deadline) {
-			fmt.Println("Interrupt wait timeout")
 			return errors.New("timeout reached")
 		}
 		time.Sleep(time.Millisecond)
