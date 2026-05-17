@@ -18,13 +18,13 @@ func getSpiConf() (*periphIO.SpiConf, string, string) {
 
 func NewMinimalLoraConf() *SX1276.LoraConf {
 	return &SX1276.LoraConf{
-		TxPower:        20,
+		TxPower:        14,
 		SF:             7,
-		BW:             uint64(SX1276.BW_7),
-		Denum:          5,
+		BW:             125000,
+		Denum:          1,
 		PreambleLength: 8,
-		SyncWord:       0x12,
-		Frequency:      915 * physic.MegaHertz,
+		SyncWord:       0x34,
+		Frequency:      868000000,
 		Header:         true,
 		EnableCrc:      true,
 	}
@@ -47,27 +47,33 @@ func main() {
 	}
 
 	gl := SX1276.NewGoLoraSX1276(hwDrv, *NewMinimalLoraConf())
-	if err := gl.Begin(); err != nil {
+	err = gl.Begin()
+	if err != nil {
 		log.Fatal(err)
+		return
 	}
-	if err := gl.CheckConn(); err != nil {
+	err = gl.CheckConn()
+	if err != nil {
 		log.Fatal(err)
+		return
 	}
 
+	gl.ChangeMode(SX1276.RxContinuous)
+
+	fmt.Println("waiting data")
 	cbHandle, err := gl.RegisterCb(SX1276.OnRxDone, func() {
-		fmt.Println("Packet received")
 		data, err := gl.ReceivePacket()
 		if err != nil {
-			log.Println("Error reading packet:", err)
 			return
 		}
-		fmt.Printf("Received data: %s\n", string(data))
+		fmt.Println("data received from other lora", data)
 	})
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer close(cbHandle)
 
 	// keep program running
 	select {}
+	close(cbHandle)
+	gl.Destroy()
 }
