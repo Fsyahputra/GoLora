@@ -20,11 +20,11 @@ func NewMinimalLoraConf() *SX1276.LoraConf {
 	return &SX1276.LoraConf{
 		TxPower:        20,
 		SF:             12,
-		BW:             125000,
+		BW:             uint64(SX1276.BW_7),
 		Denum:          8,
 		PreambleLength: 8,
 		SyncWord:       0x34,
-		Frequency:      915 * physic.MegaHertz,
+		Frequency:      923 * physic.MegaHertz,
 		Header:         true,
 		EnableCrc:      true,
 	}
