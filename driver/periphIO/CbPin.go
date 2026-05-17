@@ -24,7 +24,7 @@ func NewCbPin(pinName string) (*CbPin, error) {
 }
 
 func (cbp *CbPin) Init() error {
-	err := cbp.Pin.In(gpio.PullDown, gpio.FallingEdge)
+	err := cbp.Pin.In(gpio.PullNoChange, gpio.BothEdges)
 	if err != nil {
 		return err
 	}
